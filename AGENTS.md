@@ -81,3 +81,20 @@ Or:
 from importlib.metadata import version
 version("weav")
 ```
+
+## Release Workflow
+
+Releases are triggered by pushing a git tag matching `v*`:
+
+```bash
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin v0.1.0
+```
+
+**Artifacts produced:**
+- Python wheel and sdist → GitHub Releases (not published to PyPI)
+- Standalone executables for 6 platforms → GitHub Releases:
+  - `weav-linux-amd64`, `weav-linux-arm64`
+  - `weav-macos-amd64`, `weav-macos-arm64`
+  - `weav-windows-amd64.exe`, `weav-windows-arm64.exe`
+- Sigstore signatures (`.sigstore.json`) for all executables except Windows ARM64
