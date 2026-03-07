@@ -24,11 +24,25 @@ def version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+def complete_template(incomplete: str) -> list[str]:
+    """Return template names for shell completion."""
+    from weav.template import get_template_paths
+
+    templates = []
+    for path in get_template_paths():
+        if path.exists() and path.is_dir():
+            for file in path.iterdir():
+                if file.is_file() and file.name.startswith(incomplete):
+                    templates.append(file.name)
+    return templates
+
+
 def main(
     template: Annotated[
         str,
         typer.Argument(
             help="Template file name or path.",
+            autocompletion=complete_template,
         ),
     ],
     data: Annotated[
