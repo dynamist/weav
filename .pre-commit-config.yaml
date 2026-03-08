@@ -1,8 +1,6 @@
 ---
 exclude: |
   (?x)
-  # Don't dive into test files
-  tests/|
   # You don't usually want a bot to modify your legal texts
   (LICENSE.*|COPYING.*)
 
@@ -88,12 +86,10 @@ repos:
     hooks:
       - id: mypy
         stages: [manual]
-        files: ^(app/|cli/|lib/).*\.py$
+        files: ^weav/.*\.py$
         args: []
         additional_dependencies:
-          - pytest
-          - types-boto3
-          - types-click
+          - types-ruamel-yaml
 
   - repo: https://github.com/abravalheri/validate-pyproject
     rev: v0.25
