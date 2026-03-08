@@ -1,6 +1,6 @@
 [project]
 name = "weav"
-version = "0.1.0"
+version = "0.2.0.dev0"
 description = "Modern Python CLI application"
 readme = "README.md"
 authors = [{ name = "Henrik Holmboe", email = "henrik@dynamist.se" }]
