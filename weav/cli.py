@@ -94,7 +94,7 @@ def main(
     """
     try:
         result = compile_template(template, data, keyval, verbose=verbose)
-        console.print(result, highlight=False, soft_wrap=True)
+        console.print(result, highlight=False, soft_wrap=True, markup=False)
     except TemplateError as e:
         err_console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from e
