@@ -139,6 +139,8 @@ jobs:
     needs: [build, build-executables]
     if: ${{ always() && needs.build.result == 'success' && needs.build-executables.result == 'success' }}
     runs-on: ubuntu-latest
+    environment:
+      name: release
     permissions:
       contents: write
     steps:
