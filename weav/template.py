@@ -147,10 +147,15 @@ def compile_template(
     data_specs = parse_data_args(data_files)
 
     for file_obj, wrapper_key in data_specs:
-        loaded_file = load_and_wrap(yaml.load, file_obj, wrapper_key)
-        merged_data = deep_merge(merged_data, loaded_file)
-        if verbose:
-            print(f"Loaded {file_obj.name} with keys: {list(loaded_file.keys())}", file=sys.stderr)
+        try:
+            loaded_file = load_and_wrap(yaml.load, file_obj, wrapper_key)
+            merged_data = deep_merge(merged_data, loaded_file)
+            if verbose:
+                keys = list(loaded_file.keys())
+                print(f"Loaded {file_obj.name} with keys: {keys}", file=sys.stderr)
+        finally:
+            if file_obj is not sys.stdin:
+                file_obj.close()
 
     # Merge keyval parameters into merged_data (keyval takes precedence)
     merged_data.update(parameters)
