@@ -1,7 +1,7 @@
 [project]
 name = "weav"
 version = "0.2.0.dev0"
-description = "Jinja2 template compiler CLI"
+description = "A markup template compiler with data support"
 readme = "README.md"
 authors = [{ name = "Henrik Holmboe", email = "henrik@dynamist.se" }]
 requires-python = ">=3.11"
