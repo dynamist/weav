@@ -3,19 +3,13 @@
 from __future__ import annotations
 
 import importlib.resources
-import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
 import platformdirs
 from jinja2 import Environment, TemplateNotFound
 from jinja2.loaders import FileSystemLoader
-from ruamel.yaml import YAML
 
-from weav.utils import deep_merge, load_and_wrap, mangle_keyval
-
-if TYPE_CHECKING:
-    from typing import TextIO
+from weav.datasources import ContextBuilder, build_sources_from_args
 
 
 class TemplateError(Exception):
@@ -83,35 +77,6 @@ def find_template(name: str) -> tuple[FileSystemLoader, str]:
         raise TemplateError(msg) from exc
 
 
-def parse_data_args(data_args: list[str]) -> list[tuple[TextIO, str | None]]:
-    """Parse data arguments, handling key=file syntax.
-
-    Args:
-        data_args: List of data file specifications. Each can be:
-            - A filename
-            - "-" for stdin
-            - "key=filename" to wrap the data under a key
-
-    Returns:
-        List of tuples (file_object, wrapper_key or None)
-    """
-    result: list[tuple[TextIO, str | None]] = []
-    for arg in data_args:
-        if "=" in arg:
-            # Split on first '=' to get key=filename
-            wrapper_key, filename = arg.split("=", 1)
-            if filename == "-":
-                result.append((sys.stdin, wrapper_key))
-            else:
-                result.append((Path(filename).open(), wrapper_key))
-        elif arg == "-":
-            result.append((sys.stdin, None))
-        else:
-            result.append((Path(arg).open(), None))
-
-    return result
-
-
 def compile_template(
     template_name: str,
     data_files: list[str],
@@ -138,26 +103,8 @@ def compile_template(
     env = Environment(autoescape=True, trim_blocks=True, loader=loader)
     template = env.get_template(tpl_name)
 
-    # Parse CLI key=val parameters (sep=None allows commas in values)
-    parameters = mangle_keyval(keyvals, sep=None)
+    # Build data sources from CLI arguments and merge them
+    sources = build_sources_from_args(data_files, keyvals)
+    context = ContextBuilder(sources).build(verbose=verbose)
 
-    # Load all YAML files and merge them
-    yaml = YAML(typ="safe")
-    merged_data: dict[str, Any] = {}
-    data_specs = parse_data_args(data_files)
-
-    for file_obj, wrapper_key in data_specs:
-        try:
-            loaded_file = load_and_wrap(yaml.load, file_obj, wrapper_key)
-            merged_data = deep_merge(merged_data, loaded_file)
-            if verbose:
-                keys = list(loaded_file.keys())
-                print(f"Loaded {file_obj.name} with keys: {keys}", file=sys.stderr)
-        finally:
-            if file_obj is not sys.stdin:
-                file_obj.close()
-
-    # Merge keyval parameters into merged_data (keyval takes precedence)
-    merged_data.update(parameters)
-
-    return template.render(**merged_data)
+    return template.render(**context)
