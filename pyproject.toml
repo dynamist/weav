@@ -23,7 +23,7 @@ dev = [
   "pytest-cov>=6.0.0",
   "mypy>=1.13.0",
   "ruff>=0.15.12",
-  "tox>=4.23.0",
+  "tox>=4.53.0",
 ]
 
 [build-system]
@@ -39,7 +39,7 @@ dev = [
   "pytest-cov>=6.0.0",
   "mypy>=1.13.0",
   "ruff>=0.15.12",
-  "tox>=4.23.0",
+  "tox>=4.53.0",
 ]
 
 [tool.ruff]
