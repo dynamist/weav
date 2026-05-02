@@ -7,7 +7,7 @@ authors = [{ name = "Henrik Holmboe", email = "henrik@dynamist.se" }]
 requires-python = ">=3.11"
 dependencies = [
   "typer>=0.15.0",
-  "rich>=13.9.0",
+  "rich>=15.0.0",
   "jinja2>=3.1.0",
   "ruamel-yaml>=0.18.0",
   "platformdirs>=4.9.6",
