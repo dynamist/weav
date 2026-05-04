@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from weav.datasources import (
     ContextBuilder,
+    JsonDataSource,
     KeyvalDataSource,
     StdinDataSource,
     YamlDataSource,
@@ -64,6 +65,62 @@ class TestYamlDataSource:
         yaml_file.write_text("config:\n  host: localhost\n  port: 8080\n")
 
         source = YamlDataSource(yaml_file)
+        result = source.load()
+
+        assert result == {"config": {"host": "localhost", "port": 8080}}
+
+
+class TestJsonDataSource:
+    """Tests for JsonDataSource."""
+
+    def test_load_dict_json(self, tmp_path: Path):
+        """Test loading a JSON dictionary."""
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"name": "World", "count": 5}')
+
+        source = JsonDataSource(json_file)
+        result = source.load()
+
+        assert result == {"name": "World", "count": 5}
+
+    def test_load_list_json_default_wrapper(self, tmp_path: Path):
+        """Test loading a JSON list wraps under 'data' by default."""
+        json_file = tmp_path / "test.json"
+        json_file.write_text('["apple", "banana", "cherry"]')
+
+        source = JsonDataSource(json_file)
+        result = source.load()
+
+        assert result == {"data": ["apple", "banana", "cherry"]}
+
+    def test_load_list_json_custom_wrapper(self, tmp_path: Path):
+        """Test loading a JSON list with custom wrapper key."""
+        json_file = tmp_path / "test.json"
+        json_file.write_text('["apple", "banana"]')
+
+        source = JsonDataSource(json_file, wrapper_key="items")
+        result = source.load()
+
+        assert result == {"items": ["apple", "banana"]}
+
+    def test_name_property(self, tmp_path: Path):
+        """Test the name property returns the path."""
+        json_file = tmp_path / "file.json"
+        source = JsonDataSource(json_file)
+        assert source.name == str(json_file)
+
+    def test_file_not_found(self, tmp_path: Path):
+        """Test FileNotFoundError for missing file."""
+        source = JsonDataSource(tmp_path / "nonexistent.json")
+        with pytest.raises(FileNotFoundError):
+            source.load()
+
+    def test_nested_json(self, tmp_path: Path):
+        """Test loading nested JSON structures."""
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"config": {"host": "localhost", "port": 8080}}')
+
+        source = JsonDataSource(json_file)
         result = source.load()
 
         assert result == {"config": {"host": "localhost", "port": 8080}}
@@ -276,3 +333,23 @@ class TestBuildSourcesFromArgs:
         sources = build_sources_from_args(["a.yaml", "b.yaml"], ["key=val"])
         assert len(sources) == 3
         assert isinstance(sources[-1], KeyvalDataSource)
+
+    def test_json_file(self):
+        """Test building sources with a JSON file."""
+        sources = build_sources_from_args(["config.json"], [])
+        assert len(sources) == 1
+        assert isinstance(sources[0], JsonDataSource)
+        assert sources[0].name == "config.json"
+
+    def test_mixed_yaml_and_json(self):
+        """Test building sources with both YAML and JSON files."""
+        sources = build_sources_from_args(["base.yaml", "override.json"], [])
+        assert len(sources) == 2
+        assert isinstance(sources[0], YamlDataSource)
+        assert isinstance(sources[1], JsonDataSource)
+
+    def test_json_file_with_wrapper(self):
+        """Test building sources with wrapped JSON file."""
+        sources = build_sources_from_args(["items=tasks.json"], [])
+        assert len(sources) == 1
+        assert isinstance(sources[0], JsonDataSource)

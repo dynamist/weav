@@ -7,6 +7,7 @@ various backends (files, CLI arguments, environment variables, etc.).
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any, Protocol
@@ -75,6 +76,48 @@ class YamlDataSource:
         """
         with self._path.open() as f:
             return load_and_wrap(self._yaml.load, f, self._wrapper_key)
+
+
+class JsonDataSource:
+    """Load data from a JSON file.
+
+    Supports wrapping non-dict data under a specified key.
+
+    Args:
+        path: Path to the JSON file
+        wrapper_key: Optional key to wrap non-dict data under
+
+    Example:
+        >>> source = JsonDataSource(Path("config.json"))
+        >>> data = source.load()
+        >>> print(data)
+        {'key': 'value', ...}
+
+        >>> source = JsonDataSource(Path("items.json"), wrapper_key="items")
+        >>> data = source.load()  # List wrapped under 'items' key
+    """
+
+    def __init__(self, path: Path, wrapper_key: str | None = None) -> None:
+        self._path = path
+        self._wrapper_key = wrapper_key
+
+    @property
+    def name(self) -> str:
+        """Return the file path as identifier."""
+        return str(self._path)
+
+    def load(self) -> dict[str, Any]:
+        """Load JSON data from file and return as dictionary.
+
+        Returns:
+            Dictionary with loaded data, optionally wrapped under wrapper_key
+
+        Raises:
+            FileNotFoundError: If the file does not exist
+            json.JSONDecodeError: If JSON parsing fails
+        """
+        with self._path.open() as f:
+            return load_and_wrap(json.load, f, self._wrapper_key)
 
 
 class StdinDataSource:
@@ -240,6 +283,8 @@ def build_sources_from_args(
         path, wrapper_key = parse_data_spec(spec)
         if path == "-":
             sources.append(StdinDataSource(wrapper_key))
+        elif path.endswith(".json"):
+            sources.append(JsonDataSource(Path(path), wrapper_key))
         else:
             sources.append(YamlDataSource(Path(path), wrapper_key))
 
