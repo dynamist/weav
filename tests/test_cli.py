@@ -48,3 +48,27 @@ def test_render_data_file_not_found(tmp_path):
     template.write_text("Hello {{ name }}!")
     result = runner.invoke(app, [str(template), "--data", "nonexistent.yaml"])
     assert result.exit_code == 1
+
+
+def test_render_with_env_prefix(tmp_path, monkeypatch):
+    """Test the render command with environment variable prefix."""
+    monkeypatch.setenv("MYAPP_NAME", "EnvWorld")
+    monkeypatch.setenv("MYAPP_COUNT", "42")
+    template = tmp_path / "test.j2"
+    template.write_text("Hello {{ name }}! Count: {{ count }}")
+    result = runner.invoke(app, [str(template), "--env", "MYAPP_"])
+    assert result.exit_code == 0
+    assert "Hello EnvWorld!" in result.stdout
+    assert "Count: 42" in result.stdout
+
+
+def test_render_env_overrides_data(tmp_path, monkeypatch):
+    """Test that env vars override data file values."""
+    monkeypatch.setenv("MYAPP_NAME", "FromEnv")
+    template = tmp_path / "test.j2"
+    template.write_text("Hello {{ name }}!")
+    data_file = tmp_path / "data.yaml"
+    data_file.write_text("name: FromYaml\n")
+    result = runner.invoke(app, [str(template), "--data", str(data_file), "--env", "MYAPP_"])
+    assert result.exit_code == 0
+    assert "Hello FromEnv!" in result.stdout
