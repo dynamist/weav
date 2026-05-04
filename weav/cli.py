@@ -61,6 +61,14 @@ def main(
             help="Key-value pairs (KEY=VAL). Can specify multiple times.",
         ),
     ] = [],  # noqa: B006
+    env: Annotated[
+        list[str],
+        typer.Option(
+            "--env",
+            "-e",
+            help="Environment variable prefix (e.g., MYAPP_). Can specify multiple times.",
+        ),
+    ] = [],  # noqa: B006
     verbose: Annotated[
         bool,
         typer.Option(
@@ -91,9 +99,11 @@ def main(
         weav report.j2 --data items=tasks.yaml --data config.yaml
 
         cat data.yaml | weav template.j2 --data -
+
+        weav template.j2 --env MYAPP_
     """
     try:
-        result = compile_template(template, data, keyval, verbose=verbose)
+        result = compile_template(template, data, keyval, env_prefixes=env or None, verbose=verbose)
         console.print(result, highlight=False, soft_wrap=True, markup=False)
     except TemplateError as e:
         err_console.print(f"[red]Error:[/red] {e}")

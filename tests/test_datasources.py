@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from weav.datasources import (
     ContextBuilder,
+    EnvDataSource,
     JsonDataSource,
     KeyvalDataSource,
     StdinDataSource,
@@ -157,6 +158,70 @@ class TestKeyvalDataSource:
         """Test the name property."""
         source = KeyvalDataSource(["key=val"])
         assert source.name == "keyval"
+
+
+class TestEnvDataSource:
+    """Tests for EnvDataSource."""
+
+    def test_load_with_prefix(self, monkeypatch):
+        """Test loading env vars with prefix filtering."""
+        monkeypatch.setenv("WEAV_NAME", "World")
+        monkeypatch.setenv("WEAV_COUNT", "5")
+        monkeypatch.setenv("OTHER_VAR", "ignored")
+
+        source = EnvDataSource(prefix="WEAV_")
+        result = source.load()
+
+        assert result == {"name": "World", "count": "5"}
+        assert "other_var" not in result
+
+    def test_load_without_prefix(self, monkeypatch):
+        """Test loading all env vars without prefix."""
+        monkeypatch.setenv("TEST_VAR", "value")
+
+        source = EnvDataSource()
+        result = source.load()
+
+        assert "test_var" in result
+        assert result["test_var"] == "value"
+
+    def test_strip_prefix_disabled(self, monkeypatch):
+        """Test keeping prefix in keys."""
+        monkeypatch.setenv("WEAV_NAME", "World")
+
+        source = EnvDataSource(prefix="WEAV_", strip_prefix=False)
+        result = source.load()
+
+        assert result == {"weav_name": "World"}
+
+    def test_lowercase_keys_disabled(self, monkeypatch):
+        """Test keeping original case in keys."""
+        monkeypatch.setenv("WEAV_NAME", "World")
+
+        source = EnvDataSource(prefix="WEAV_", lowercase_keys=False)
+        result = source.load()
+
+        # Windows env vars are always uppercase, so we check for uppercase
+        assert result == {"NAME": "World"}
+
+    def test_name_property_with_prefix(self):
+        """Test the name property with prefix."""
+        source = EnvDataSource(prefix="WEAV_")
+        assert source.name == "env:WEAV_*"
+
+    def test_name_property_without_prefix(self):
+        """Test the name property without prefix."""
+        source = EnvDataSource()
+        assert source.name == "env"
+
+    def test_empty_result_with_unmatched_prefix(self, monkeypatch):
+        """Test that unmatched prefix returns empty dict."""
+        monkeypatch.setenv("OTHER_VAR", "value")
+
+        source = EnvDataSource(prefix="WEAV_")
+        result = source.load()
+
+        assert result == {}
 
 
 class TestStdinDataSource:

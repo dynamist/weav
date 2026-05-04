@@ -6,9 +6,10 @@ A markup template compiler with data support.
 
 ## Features
 
-- Render Jinja2 templates with data from YAML files
+- Render Jinja2 templates with data from YAML or JSON files
 - Support for multiple data files with deep merge
 - Key-value parameters via command line
+- Environment variable support (programmatic API)
 - Flexible template search paths
 - Read data from stdin
 
@@ -42,6 +43,18 @@ Using a YAML data file:
 weav template.j2 --data config.yaml
 ```
 
+Using a JSON data file:
+
+```bash
+weav template.j2 --data config.json
+```
+
+Mixing YAML and JSON data files:
+
+```bash
+weav template.j2 --data base.yaml --data override.json
+```
+
 Multiple data files with key wrapping:
 
 ```bash
@@ -52,6 +65,19 @@ Reading data from stdin:
 
 ```bash
 cat data.yaml | weav template.j2 --data -
+```
+
+Using environment variables:
+
+```bash
+# Load all MYAPP_* environment variables
+export MYAPP_NAME=World
+export MYAPP_DEBUG=true
+weav template.j2 --env MYAPP_
+# Variables are available as lowercase keys: {{ name }}, {{ debug }}
+
+# Combine with data files (env vars override file values)
+weav template.j2 --data config.yaml --env MYAPP_
 ```
 
 ## Template Search Paths
@@ -69,10 +95,53 @@ You can also specify a direct file path to a template.
 
 | Option | Description |
 |--------|-------------|
-| `-d, --data` | YAML data file(s). Use `KEY=FILE` to wrap under key. Use `-` for stdin. |
+| `-d, --data` | YAML/JSON data file(s). Use `KEY=FILE` to wrap under key. Use `-` for stdin. |
+| `-e, --env` | Environment variable prefix (e.g., `MYAPP_`). Can specify multiple times. |
 | `-k, --keyval` | Key-value pairs (`KEY=VAL`). Can specify multiple times. |
 | `-v, --verbose` | Show verbose output (loaded files, etc.) |
 | `-V, --version` | Show version and exit |
+
+## Programmatic API
+
+weav provides a pluggable data source architecture for programmatic use:
+
+```python
+from pathlib import Path
+from weav.datasources import (
+    YamlDataSource,
+    JsonDataSource,
+    EnvDataSource,
+    KeyvalDataSource,
+    ContextBuilder,
+)
+from weav.template import compile_template
+
+# Build context from multiple sources
+builder = ContextBuilder()
+builder.add(YamlDataSource(Path("base.yaml")))
+builder.add(JsonDataSource(Path("override.json")))
+builder.add(EnvDataSource(prefix="MYAPP_"))  # Read MYAPP_* env vars
+builder.add(KeyvalDataSource(["debug=true"]))
+
+context = builder.build()
+
+# Or use the high-level API
+result = compile_template(
+    "template.j2",
+    data_files=["config.yaml", "data.json"],
+    keyvals=["name=World"],
+)
+```
+
+### Available Data Sources
+
+| Class | Description |
+|-------|-------------|
+| `YamlDataSource` | Load data from YAML files |
+| `JsonDataSource` | Load data from JSON files |
+| `EnvDataSource` | Load data from environment variables |
+| `KeyvalDataSource` | Load data from key=value strings |
+| `StdinDataSource` | Load data from standard input |
 
 ## License
 

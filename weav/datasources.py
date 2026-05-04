@@ -8,6 +8,7 @@ various backends (files, CLI arguments, environment variables, etc.).
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Protocol
@@ -180,6 +181,71 @@ class KeyvalDataSource:
         return mangle_keyval(self._keyvals, sep=None)
 
 
+class EnvDataSource:
+    """Load data from environment variables.
+
+    Reads environment variables, optionally filtered by a prefix.
+    The prefix is stripped from variable names in the resulting dictionary.
+
+    Args:
+        prefix: Only include variables starting with this prefix.
+                If None, includes all environment variables.
+        strip_prefix: If True (default), remove the prefix from keys.
+        lowercase_keys: If True (default), convert keys to lowercase.
+
+    Example:
+        >>> # With WEAV_NAME=World and WEAV_COUNT=5 in environment
+        >>> source = EnvDataSource(prefix="WEAV_")
+        >>> data = source.load()
+        >>> print(data)
+        {'name': 'World', 'count': '5'}
+
+        >>> # Without prefix filtering
+        >>> source = EnvDataSource()
+        >>> data = source.load()  # All env vars
+    """
+
+    def __init__(
+        self,
+        prefix: str | None = None,
+        *,
+        strip_prefix: bool = True,
+        lowercase_keys: bool = True,
+    ) -> None:
+        self._prefix = prefix
+        self._strip_prefix = strip_prefix
+        self._lowercase_keys = lowercase_keys
+
+    @property
+    def name(self) -> str:
+        """Return identifier for env source."""
+        if self._prefix:
+            return f"env:{self._prefix}*"
+        return "env"
+
+    def load(self) -> dict[str, Any]:
+        """Read environment variables and return as dictionary.
+
+        Returns:
+            Dictionary with environment variable names as keys
+        """
+        result: dict[str, Any] = {}
+
+        for key, value in os.environ.items():
+            if self._prefix:
+                if not key.startswith(self._prefix):
+                    continue
+                if self._strip_prefix:
+                    key = key[len(self._prefix) :]
+
+            if self._lowercase_keys:
+                key = key.lower()
+
+            result[key] = value
+
+        return result
+
+
 class ContextBuilder:
     """Build final template context from multiple data sources.
 
@@ -264,6 +330,7 @@ def parse_data_spec(spec: str) -> tuple[str, str | None]:
 def build_sources_from_args(
     data_files: list[str],
     keyvals: list[str],
+    env_prefixes: list[str] | None = None,
 ) -> list[DataSource]:
     """Convert CLI arguments to DataSource objects.
 
@@ -273,6 +340,7 @@ def build_sources_from_args(
     Args:
         data_files: List of data file specifications
         keyvals: List of key=value strings
+        env_prefixes: List of environment variable prefixes to load
 
     Returns:
         List of DataSource objects in precedence order (last wins)
@@ -287,6 +355,11 @@ def build_sources_from_args(
             sources.append(JsonDataSource(Path(path), wrapper_key))
         else:
             sources.append(YamlDataSource(Path(path), wrapper_key))
+
+    if env_prefixes:
+        for prefix in env_prefixes:
+            # Empty string means no prefix filter
+            sources.append(EnvDataSource(prefix=prefix if prefix else None))
 
     if keyvals:
         sources.append(KeyvalDataSource(keyvals))
