@@ -21,7 +21,7 @@ weav = "weav.cli:app"
 dev = [
   "pytest>=9.0.3",
   "pytest-cov>=6.0.0",
-  "mypy>=1.13.0",
+  "mypy>=1.20.2",
   "ruff>=0.15.12",
   "tox>=4.53.0",
 ]
@@ -37,7 +37,7 @@ exclude-newer = "4 days"
 dev = [
   "pytest>=9.0.3",
   "pytest-cov>=6.0.0",
-  "mypy>=1.13.0",
+  "mypy>=1.20.2",
   "ruff>=0.15.12",
   "tox>=4.53.0",
 ]
