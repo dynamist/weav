@@ -1,3 +1,18 @@
+# 0.2.0 (2026-05-05)
+
+## New Features
+
+* **JSON data source** - Load data from JSON files with `--data config.json`
+* **TOML data source** - Load data from TOML files with `--data config.toml`
+* **Environment variable support** - Load environment variables with `--env PREFIX_` CLI option
+* **Pluggable data source architecture** - New programmatic API with `YamlDataSource`, `JsonDataSource`, `TomlDataSource`, `EnvDataSource`, `KeyvalDataSource`, `StdinDataSource`, and `ContextBuilder`
+
+## Other Notes
+
+* Refactored internal data loading to use DataSource protocol pattern
+* All data sources support deep merge when combined
+
+
 # 0.1.1 (2026-03-30)
 
 ## Bug Fixes

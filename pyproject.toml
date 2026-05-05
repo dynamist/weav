@@ -1,6 +1,6 @@
 [project]
 name = "weav"
-version = "0.2.0.dev0"
+version = "0.2.0"
 description = "A markup template compiler with data support"
 readme = "README.md"
 authors = [{ name = "Henrik Holmboe", email = "henrik@dynamist.se" }]
