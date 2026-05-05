@@ -6,7 +6,7 @@ A markup template compiler with data support.
 
 ## Features
 
-- Render Jinja2 templates with data from YAML or JSON files
+- Render Jinja2 templates with data from YAML, JSON, or TOML files
 - Support for multiple data files with deep merge
 - Key-value parameters via command line
 - Environment variable support (programmatic API)
@@ -49,10 +49,16 @@ Using a JSON data file:
 weav template.j2 --data config.json
 ```
 
-Mixing YAML and JSON data files:
+Using a TOML data file:
 
 ```bash
-weav template.j2 --data base.yaml --data override.json
+weav template.j2 --data config.toml
+```
+
+Mixing YAML, JSON, and TOML data files:
+
+```bash
+weav template.j2 --data base.yaml --data override.json --data final.toml
 ```
 
 Multiple data files with key wrapping:
@@ -95,7 +101,7 @@ You can also specify a direct file path to a template.
 
 | Option | Description |
 |--------|-------------|
-| `-d, --data` | YAML/JSON data file(s). Use `KEY=FILE` to wrap under key. Use `-` for stdin. |
+| `-d, --data` | YAML/JSON/TOML data file(s). Use `KEY=FILE` to wrap under key. Use `-` for stdin. |
 | `-e, --env` | Environment variable prefix (e.g., `MYAPP_`). Can specify multiple times. |
 | `-k, --keyval` | Key-value pairs (`KEY=VAL`). Can specify multiple times. |
 | `-v, --verbose` | Show verbose output (loaded files, etc.) |
@@ -110,6 +116,7 @@ from pathlib import Path
 from weav.datasources import (
     YamlDataSource,
     JsonDataSource,
+    TomlDataSource,
     EnvDataSource,
     KeyvalDataSource,
     ContextBuilder,
@@ -120,6 +127,7 @@ from weav.template import compile_template
 builder = ContextBuilder()
 builder.add(YamlDataSource(Path("base.yaml")))
 builder.add(JsonDataSource(Path("override.json")))
+builder.add(TomlDataSource(Path("settings.toml")))
 builder.add(EnvDataSource(prefix="MYAPP_"))  # Read MYAPP_* env vars
 builder.add(KeyvalDataSource(["debug=true"]))
 
@@ -128,7 +136,7 @@ context = builder.build()
 # Or use the high-level API
 result = compile_template(
     "template.j2",
-    data_files=["config.yaml", "data.json"],
+    data_files=["config.yaml", "data.json", "settings.toml"],
     keyvals=["name=World"],
 )
 ```
@@ -139,6 +147,7 @@ result = compile_template(
 |-------|-------------|
 | `YamlDataSource` | Load data from YAML files |
 | `JsonDataSource` | Load data from JSON files |
+| `TomlDataSource` | Load data from TOML files |
 | `EnvDataSource` | Load data from environment variables |
 | `KeyvalDataSource` | Load data from key=value strings |
 | `StdinDataSource` | Load data from standard input |

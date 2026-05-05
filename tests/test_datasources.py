@@ -9,6 +9,7 @@ from weav.datasources import (
     JsonDataSource,
     KeyvalDataSource,
     StdinDataSource,
+    TomlDataSource,
     YamlDataSource,
     build_sources_from_args,
     parse_data_spec,
@@ -125,6 +126,62 @@ class TestJsonDataSource:
         result = source.load()
 
         assert result == {"config": {"host": "localhost", "port": 8080}}
+
+
+class TestTomlDataSource:
+    """Tests for TomlDataSource."""
+
+    def test_load_dict_toml(self, tmp_path: Path):
+        """Test loading a TOML dictionary."""
+        toml_file = tmp_path / "test.toml"
+        toml_file.write_text('name = "World"\ncount = 5\n')
+
+        source = TomlDataSource(toml_file)
+        result = source.load()
+
+        assert result == {"name": "World", "count": 5}
+
+    def test_load_toml_with_wrapper(self, tmp_path: Path):
+        """Test loading TOML with custom wrapper key."""
+        toml_file = tmp_path / "test.toml"
+        toml_file.write_text('name = "World"\n')
+
+        source = TomlDataSource(toml_file, wrapper_key="config")
+        result = source.load()
+
+        assert result == {"config": {"name": "World"}}
+
+    def test_name_property(self, tmp_path: Path):
+        """Test the name property returns the path."""
+        toml_file = tmp_path / "file.toml"
+        source = TomlDataSource(toml_file)
+        assert source.name == str(toml_file)
+
+    def test_file_not_found(self, tmp_path: Path):
+        """Test FileNotFoundError for missing file."""
+        source = TomlDataSource(tmp_path / "nonexistent.toml")
+        with pytest.raises(FileNotFoundError):
+            source.load()
+
+    def test_nested_toml(self, tmp_path: Path):
+        """Test loading nested TOML structures."""
+        toml_file = tmp_path / "test.toml"
+        toml_file.write_text('[config]\nhost = "localhost"\nport = 8080\n')
+
+        source = TomlDataSource(toml_file)
+        result = source.load()
+
+        assert result == {"config": {"host": "localhost", "port": 8080}}
+
+    def test_toml_array_of_tables(self, tmp_path: Path):
+        """Test loading TOML array of tables."""
+        toml_file = tmp_path / "test.toml"
+        toml_file.write_text('[[items]]\nname = "apple"\n\n[[items]]\nname = "banana"\n')
+
+        source = TomlDataSource(toml_file)
+        result = source.load()
+
+        assert result == {"items": [{"name": "apple"}, {"name": "banana"}]}
 
 
 class TestKeyvalDataSource:
@@ -418,3 +475,24 @@ class TestBuildSourcesFromArgs:
         sources = build_sources_from_args(["items=tasks.json"], [])
         assert len(sources) == 1
         assert isinstance(sources[0], JsonDataSource)
+
+    def test_toml_file(self):
+        """Test building sources with a TOML file."""
+        sources = build_sources_from_args(["config.toml"], [])
+        assert len(sources) == 1
+        assert isinstance(sources[0], TomlDataSource)
+        assert sources[0].name == "config.toml"
+
+    def test_mixed_yaml_json_toml(self):
+        """Test building sources with YAML, JSON, and TOML files."""
+        sources = build_sources_from_args(["base.yaml", "override.json", "final.toml"], [])
+        assert len(sources) == 3
+        assert isinstance(sources[0], YamlDataSource)
+        assert isinstance(sources[1], JsonDataSource)
+        assert isinstance(sources[2], TomlDataSource)
+
+    def test_toml_file_with_wrapper(self):
+        """Test building sources with wrapped TOML file."""
+        sources = build_sources_from_args(["config=settings.toml"], [])
+        assert len(sources) == 1
+        assert isinstance(sources[0], TomlDataSource)

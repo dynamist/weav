@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -119,6 +120,51 @@ class JsonDataSource:
         """
         with self._path.open() as f:
             return load_and_wrap(json.load, f, self._wrapper_key)
+
+
+class TomlDataSource:
+    """Load data from a TOML file.
+
+    Supports wrapping non-dict data under a specified key.
+
+    Args:
+        path: Path to the TOML file
+        wrapper_key: Optional key to wrap non-dict data under
+
+    Example:
+        >>> source = TomlDataSource(Path("config.toml"))
+        >>> data = source.load()
+        >>> print(data)
+        {'key': 'value', ...}
+
+        >>> source = TomlDataSource(Path("items.toml"), wrapper_key="items")
+        >>> data = source.load()  # Data wrapped under 'items' key
+    """
+
+    def __init__(self, path: Path, wrapper_key: str | None = None) -> None:
+        self._path = path
+        self._wrapper_key = wrapper_key
+
+    @property
+    def name(self) -> str:
+        """Return the file path as identifier."""
+        return str(self._path)
+
+    def load(self) -> dict[str, Any]:
+        """Load TOML data from file and return as dictionary.
+
+        Returns:
+            Dictionary with loaded data, optionally wrapped under wrapper_key
+
+        Raises:
+            FileNotFoundError: If the file does not exist
+            tomllib.TOMLDecodeError: If TOML parsing fails
+        """
+        with self._path.open("rb") as f:
+            data = tomllib.load(f)
+        if self._wrapper_key:
+            return {self._wrapper_key: data}
+        return data
 
 
 class StdinDataSource:
@@ -353,6 +399,8 @@ def build_sources_from_args(
             sources.append(StdinDataSource(wrapper_key))
         elif path.endswith(".json"):
             sources.append(JsonDataSource(Path(path), wrapper_key))
+        elif path.endswith(".toml"):
+            sources.append(TomlDataSource(Path(path), wrapper_key))
         else:
             sources.append(YamlDataSource(Path(path), wrapper_key))
 

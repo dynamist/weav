@@ -50,7 +50,7 @@ def main(
         typer.Option(
             "--data",
             "-d",
-            help="YAML data file(s). Use KEY=FILE to wrap under key. Use '-' for stdin.",
+            help="Data file (YAML/JSON/TOML). Use KEY=FILE to wrap under key. '-' for stdin.",
         ),
     ] = [],  # noqa: B006
     keyval: Annotated[
@@ -88,7 +88,7 @@ def main(
         ),
     ] = None,
 ) -> None:
-    """Render a Jinja2 template with YAML data.
+    """Render a Jinja2 template with data from YAML, JSON, or TOML files.
 
     Examples:
 
@@ -96,7 +96,9 @@ def main(
 
         weav template.j2 --data config.yaml
 
-        weav report.j2 --data items=tasks.yaml --data config.yaml
+        weav template.j2 --data config.toml
+
+        weav report.j2 --data items=tasks.yaml --data config.json
 
         cat data.yaml | weav template.j2 --data -
 

@@ -72,3 +72,27 @@ def test_render_env_overrides_data(tmp_path, monkeypatch):
     result = runner.invoke(app, [str(template), "--data", str(data_file), "--env", "MYAPP_"])
     assert result.exit_code == 0
     assert "Hello FromEnv!" in result.stdout
+
+
+def test_render_with_toml_data(tmp_path):
+    """Test the render command with TOML data file."""
+    template = tmp_path / "test.j2"
+    template.write_text("Hello {{ name }}! Count: {{ count }}")
+    data_file = tmp_path / "data.toml"
+    data_file.write_text('name = "World"\ncount = 42\n')
+    result = runner.invoke(app, [str(template), "--data", str(data_file)])
+    assert result.exit_code == 0
+    assert "Hello World!" in result.stdout
+    assert "Count: 42" in result.stdout
+
+
+def test_render_with_nested_toml(tmp_path):
+    """Test the render command with nested TOML data."""
+    template = tmp_path / "test.j2"
+    template.write_text("Host: {{ config.host }}, Port: {{ config.port }}")
+    data_file = tmp_path / "data.toml"
+    data_file.write_text('[config]\nhost = "localhost"\nport = 8080\n')
+    result = runner.invoke(app, [str(template), "--data", str(data_file)])
+    assert result.exit_code == 0
+    assert "Host: localhost" in result.stdout
+    assert "Port: 8080" in result.stdout
