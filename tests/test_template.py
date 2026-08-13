@@ -1,7 +1,12 @@
 """Tests for the template module."""
 
 import pytest
-from weav.template import TemplateError, compile_template, find_template
+from weav.template import (
+    TemplateError,
+    _autoescape,
+    compile_template,
+    find_template,
+)
 
 
 def test_find_template_direct_path(tmp_path):
@@ -56,3 +61,40 @@ def test_compile_template_wrapped_list(tmp_path):
     assert "apple" in result
     assert "banana" in result
     assert "cherry" in result
+
+
+@pytest.mark.parametrize(
+    ("template_name", "expected"),
+    [
+        ("page.html.j2", True),
+        ("page.html", True),
+        ("page.htm.j2", True),
+        ("feed.xml.j2", True),
+        ("feed.xml", True),
+        ("doc.md.j2", False),
+        ("notes.txt.j2", False),
+        ("notes.txt", False),
+        ("plain.j2", False),
+        (None, False),
+    ],
+)
+def test_autoescape_by_extension(template_name, expected):
+    """Autoescape is enabled only for HTML/XML templates, .j2 suffix ignored."""
+    assert _autoescape(template_name) is expected
+
+
+def test_compile_template_markdown_not_html_escaped(tmp_path):
+    """Non-HTML templates render substituted values verbatim."""
+    template = tmp_path / "report.md.j2"
+    template.write_text("# {{ title }}")
+    result = compile_template(str(template), [], ['title=Say "hi" & <bye>'])
+    assert result == '# Say "hi" & <bye>'
+    assert "&#34;" not in result
+
+
+def test_compile_template_html_still_escaped(tmp_path):
+    """HTML templates keep autoescaping substituted values."""
+    template = tmp_path / "page.html.j2"
+    template.write_text("<h1>{{ title }}</h1>")
+    result = compile_template(str(template), [], ['title=Say "hi" & <bye>'])
+    assert result == "<h1>Say &#34;hi&#34; &amp; &lt;bye&gt;</h1>"

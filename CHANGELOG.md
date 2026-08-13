@@ -1,3 +1,13 @@
+# Unreleased
+
+## Bug Fixes
+
+* Autoescape no longer HTML-escapes substituted values in non-HTML templates
+  (`.md.j2`, `.txt.j2`, plain `.j2`, ...), which previously rendered `"` as
+  `&#34;`. Templates named `*.html`, `*.htm`, or `*.xml` (with or without a
+  trailing `.j2`) still autoescape.
+
+
 # 0.2.0 (2026-05-05)
 
 ## New Features
