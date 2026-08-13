@@ -16,6 +16,18 @@ class TemplateError(Exception):
     """Error raised when template operations fail."""
 
 
+def _autoescape(template_name: str | None) -> bool:
+    """Autoescape only HTML/XML templates; a trailing .j2 is ignored.
+
+    Text formats (Markdown, plain text, config files) must render
+    substitutions verbatim -- HTML entities like &#34; would corrupt them.
+    """
+    if template_name is None:
+        return False
+    name = template_name.removesuffix(".j2")
+    return name.endswith((".html", ".htm", ".xml"))
+
+
 def get_template_paths() -> list[Path]:
     """Return list of paths to search for templates.
 
@@ -64,7 +76,9 @@ def find_template(name: str) -> tuple[FileSystemLoader, str]:
     loader = FileSystemLoader(searching)
     try:
         # Test if template exists by trying to get it
-        env = Environment(autoescape=True, loader=loader)
+        # S701: _autoescape enables escaping for HTML/XML templates; unlike
+        # select_autoescape it also recognizes them behind a .j2 suffix
+        env = Environment(autoescape=_autoescape, loader=loader)  # noqa: S701
         env.get_template(name)
         return (loader, name)
     except TemplateNotFound as exc:
@@ -102,7 +116,9 @@ def compile_template(
     """
     # Find and load the template
     loader, tpl_name = find_template(template_name)
-    env = Environment(autoescape=True, trim_blocks=True, loader=loader)
+    # S701: _autoescape enables escaping for HTML/XML templates; unlike
+    # select_autoescape it also recognizes them behind a .j2 suffix
+    env = Environment(autoescape=_autoescape, trim_blocks=True, loader=loader)  # noqa: S701
     template = env.get_template(tpl_name)
 
     # Build data sources from CLI arguments and merge them
