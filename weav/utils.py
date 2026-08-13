@@ -34,25 +34,23 @@ def load_and_wrap(
     file_obj: TextIO,
     wrapper_key: str | None = None,
 ) -> dict[str, Any]:
-    """Load file using provided parser and optionally wrap in a key if it's a list.
+    """Load file using provided parser and wrap under wrapper_key if given.
 
     Args:
         parser: Function that takes a file object and returns parsed data
         file_obj: File object to parse
-        wrapper_key: Optional key to wrap non-dict data under
+        wrapper_key: Key to namespace the data under, regardless of its shape
 
     Returns:
-        Dictionary with parsed data, optionally wrapped under wrapper_key
+        Dictionary with parsed data. With wrapper_key, always
+        {wrapper_key: data}; without, mappings are returned as-is and
+        lists/scalars are wrapped under a "data" key.
     """
     loaded: Any = parser(file_obj)
-    if isinstance(loaded, list):
-        if wrapper_key:
-            return {wrapper_key: loaded}
-        return {"data": loaded}
-    if isinstance(loaded, dict):
-        return loaded
     if wrapper_key:
         return {wrapper_key: loaded}
+    if isinstance(loaded, dict):
+        return loaded
     return {"data": loaded}
 
 

@@ -6,6 +6,16 @@
   (`.md.j2`, `.txt.j2`, plain `.j2`, ...), which previously rendered `"` as
   `&#34;`. Templates named `*.html`, `*.htm`, or `*.xml` (with or without a
   trailing `.j2`) still autoescape.
+* `--data KEY=FILE` / `--data KEY=-` now always namespaces the data under
+  `KEY`. Previously the key was silently ignored when the data was a mapping,
+  so `{{ KEY.field }}` rendered as an empty string. YAML/JSON/stdin sources
+  now match the (already correct) TOML behavior.
+
+## Upgrade Notes
+
+* Templates that passed a mapping with `--data KEY=FILE` and relied on the
+  mapping's keys landing at the top level of the context must either drop the
+  `KEY=` prefix or access values as `{{ KEY.field }}`.
 
 
 # 0.2.0 (2026-05-05)

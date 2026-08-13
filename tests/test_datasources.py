@@ -1,5 +1,6 @@
 """Tests for the datasources module."""
 
+import io
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,16 @@ class TestYamlDataSource:
         result = source.load()
 
         assert result == {"items": ["apple", "banana"]}
+
+    def test_load_dict_yaml_custom_wrapper(self, tmp_path: Path):
+        """Test loading a YAML mapping with a wrapper key namespaces it."""
+        yaml_file = tmp_path / "test.yaml"
+        yaml_file.write_text("host: x\nport: 5\n")
+
+        source = YamlDataSource(yaml_file, wrapper_key="server")
+        result = source.load()
+
+        assert result == {"server": {"host": "x", "port": 5}}
 
     def test_name_property(self, tmp_path: Path):
         """Test the name property returns the path."""
@@ -104,6 +115,16 @@ class TestJsonDataSource:
         result = source.load()
 
         assert result == {"items": ["apple", "banana"]}
+
+    def test_load_dict_json_custom_wrapper(self, tmp_path: Path):
+        """Test loading a JSON object with a wrapper key namespaces it."""
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"host": "x", "port": 5}')
+
+        source = JsonDataSource(json_file, wrapper_key="server")
+        result = source.load()
+
+        assert result == {"server": {"host": "x", "port": 5}}
 
     def test_name_property(self, tmp_path: Path):
         """Test the name property returns the path."""
@@ -293,6 +314,24 @@ class TestStdinDataSource:
         """Test the name property with wrapper key."""
         source = StdinDataSource(wrapper_key="items")
         assert source.name == "<stdin>"
+
+    def test_load_list_with_wrapper(self, monkeypatch):
+        """Test loading a YAML list from stdin wraps under the key."""
+        monkeypatch.setattr("sys.stdin", io.StringIO("- apple\n- banana\n"))
+
+        source = StdinDataSource(wrapper_key="items")
+        result = source.load()
+
+        assert result == {"items": ["apple", "banana"]}
+
+    def test_load_dict_with_wrapper(self, monkeypatch):
+        """Test loading a YAML mapping from stdin namespaces under the key."""
+        monkeypatch.setattr("sys.stdin", io.StringIO("host: x\nport: 5\n"))
+
+        source = StdinDataSource(wrapper_key="tasks")
+        result = source.load()
+
+        assert result == {"tasks": {"host": "x", "port": 5}}
 
 
 class TestContextBuilder:

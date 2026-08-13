@@ -39,12 +39,12 @@ class DataSource(Protocol):
 class YamlDataSource:
     """Load data from a YAML file.
 
-    Supports wrapping non-dict data under a specified key.
+    Supports namespacing the loaded data under a specified key.
     Note: Since YAML is a superset of JSON, this also handles JSON files.
 
     Args:
         path: Path to the YAML file
-        wrapper_key: Optional key to wrap non-dict data under
+        wrapper_key: Optional key to namespace the loaded data under
 
     Example:
         >>> source = YamlDataSource(Path("config.yaml"))
@@ -83,11 +83,11 @@ class YamlDataSource:
 class JsonDataSource:
     """Load data from a JSON file.
 
-    Supports wrapping non-dict data under a specified key.
+    Supports namespacing the loaded data under a specified key.
 
     Args:
         path: Path to the JSON file
-        wrapper_key: Optional key to wrap non-dict data under
+        wrapper_key: Optional key to namespace the loaded data under
 
     Example:
         >>> source = JsonDataSource(Path("config.json"))
@@ -125,11 +125,11 @@ class JsonDataSource:
 class TomlDataSource:
     """Load data from a TOML file.
 
-    Supports wrapping non-dict data under a specified key.
+    Supports namespacing the loaded data under a specified key.
 
     Args:
         path: Path to the TOML file
-        wrapper_key: Optional key to wrap non-dict data under
+        wrapper_key: Optional key to namespace the loaded data under
 
     Example:
         >>> source = TomlDataSource(Path("config.toml"))
@@ -171,7 +171,7 @@ class StdinDataSource:
     """Load data from standard input.
 
     Args:
-        wrapper_key: Optional key to wrap non-dict data under
+        wrapper_key: Optional key to namespace the loaded data under
 
     Example:
         >>> source = StdinDataSource()
