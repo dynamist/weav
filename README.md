@@ -67,6 +67,11 @@ Multiple data files with key wrapping:
 weav report.j2 --data items=tasks.yaml --data config.yaml
 ```
 
+`KEY=FILE` always namespaces the file's data under `KEY` — whether it is a
+mapping, list, or scalar — so the template accesses it as `{{ items }}`.
+Without a key, mappings merge at the top level of the context and
+lists/scalars are wrapped under `data`.
+
 Reading data from stdin:
 
 ```bash

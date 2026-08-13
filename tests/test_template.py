@@ -98,3 +98,13 @@ def test_compile_template_html_still_escaped(tmp_path):
     template.write_text("<h1>{{ title }}</h1>")
     result = compile_template(str(template), [], ['title=Say "hi" & <bye>'])
     assert result == "<h1>Say &#34;hi&#34; &amp; &lt;bye&gt;</h1>"
+
+
+def test_compile_template_dict_data_namespaced_under_key(tmp_path):
+    """A mapping data file given as KEY=FILE is namespaced under KEY."""
+    template = tmp_path / "test.j2"
+    template.write_text("{{ server.host }}:{{ server.port }}")
+    data_file = tmp_path / "server.yaml"
+    data_file.write_text("host: example.com\nport: 8080\n")
+    result = compile_template(str(template), [f"server={data_file}"], [])
+    assert result == "example.com:8080"

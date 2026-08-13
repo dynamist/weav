@@ -44,6 +44,19 @@ def test_load_and_wrap_dict():
     assert result == {"key": "value"}
 
 
+def test_load_and_wrap_dict_with_key():
+    """Test loading a dictionary with a wrapper key namespaces it."""
+    data = io.StringIO('{"host": "x", "port": 5}')
+
+    def parser(f):
+        import json
+
+        return json.load(f)
+
+    result = load_and_wrap(parser, data, wrapper_key="server")
+    assert result == {"server": {"host": "x", "port": 5}}
+
+
 def test_load_and_wrap_list_default():
     """Test loading a list wraps under 'data' key by default."""
     data = io.StringIO('["a", "b", "c"]')
