@@ -92,7 +92,7 @@ repos:
           - types-ruamel-yaml
 
   - repo: https://github.com/abravalheri/validate-pyproject
-    rev: v0.25
+    rev: 0.26
     hooks:
       - id: validate-pyproject
         additional_dependencies: ["validate-pyproject-schema-store[all]"]
