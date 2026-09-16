@@ -1,8 +1,6 @@
 """Tests for the datasources module."""
 
 import io
-import shlex
-import sys
 from pathlib import Path
 
 import pytest
@@ -20,12 +18,6 @@ from weav.datasources import (
     get_parser,
     parse_data_spec,
 )
-
-
-def py(code, *args):
-    """Build a command string that runs Python code, for ExecDataSource tests."""
-    parts = [sys.executable, "-c", code, *args]
-    return " ".join(shlex.quote(part) for part in parts)
 
 
 class TestYamlDataSource:
@@ -498,32 +490,32 @@ class TestGetParser:
 class TestExecDataSource:
     """Tests for ExecDataSource."""
 
-    def test_load_yaml_output(self):
+    def test_load_yaml_output(self, py):
         """Test running a command whose stdout is YAML."""
         source = ExecDataSource(py("print('host: example.com')"))
         assert source.load() == {"host": "example.com"}
 
-    def test_load_json_output(self):
+    def test_load_json_output(self, py):
         """Test running a command whose stdout is JSON."""
         code = 'print(\'{"host": "example.com"}\')'
         assert ExecDataSource(py(code), fmt="json").load() == {"host": "example.com"}
 
-    def test_load_toml_output(self):
+    def test_load_toml_output(self, py):
         """Test running a command whose stdout is TOML."""
         code = "print('host = \"example.com\"')"
         assert ExecDataSource(py(code), fmt="toml").load() == {"host": "example.com"}
 
-    def test_load_list_with_wrapper(self):
+    def test_load_list_with_wrapper(self, py):
         """A list output is namespaced under the wrapper key."""
         source = ExecDataSource(py("print('- a\\n- b')"), wrapper_key="items")
         assert source.load() == {"items": ["a", "b"]}
 
-    def test_load_list_without_wrapper(self):
+    def test_load_list_without_wrapper(self, py):
         """A list output without a key falls back to the 'data' key."""
         source = ExecDataSource(py("print('- a\\n- b')"))
         assert source.load() == {"data": ["a", "b"]}
 
-    def test_empty_output(self):
+    def test_empty_output(self, py):
         """Empty stdout yields None under the wrapper key, not an error.
 
         This is the phabfive no-results case: it prints nothing at all.
@@ -531,7 +523,7 @@ class TestExecDataSource:
         source = ExecDataSource(py("pass"), wrapper_key="items")
         assert source.load() == {"items": None}
 
-    def test_nonzero_exit_raises(self):
+    def test_nonzero_exit_raises(self, py):
         """A failing command raises DataSourceError naming the exit code."""
         source = ExecDataSource(py("raise SystemExit(3)"))
         with pytest.raises(DataSourceError, match="exit code 3"):
@@ -548,12 +540,12 @@ class TestExecDataSource:
         with pytest.raises(DataSourceError, match="Empty command"):
             ExecDataSource("   ").load()
 
-    def test_unknown_format_raises_at_construction(self):
+    def test_unknown_format_raises_at_construction(self, py):
         """An unknown format fails before the command is ever run."""
         with pytest.raises(DataSourceError, match="Unknown format"):
             ExecDataSource(py("pass"), fmt="xml")
 
-    def test_no_shell_interpretation(self):
+    def test_no_shell_interpretation(self, py):
         """Shell metacharacters reach the command as literal arguments."""
         code = "import json, sys; print(json.dumps({'arg': sys.argv[1]}))"
         source = ExecDataSource(py(code, "a | b > c"), fmt="json")
@@ -701,19 +693,19 @@ class TestBuildSourcesFromArgs:
 class TestExecDataSourceParseErrors:
     """Tests that unparseable command output is reported cleanly."""
 
-    def test_invalid_json_output(self):
+    def test_invalid_json_output(self, py):
         """Malformed JSON becomes a DataSourceError naming the command."""
         source = ExecDataSource(py("print('{not json')"), fmt="json")
         with pytest.raises(DataSourceError, match="Could not parse json output"):
             source.load()
 
-    def test_invalid_yaml_output(self):
+    def test_invalid_yaml_output(self, py):
         """Malformed YAML becomes a DataSourceError naming the command."""
         source = ExecDataSource(py("print('a: [1, 2')"))
         with pytest.raises(DataSourceError, match="Could not parse yaml output"):
             source.load()
 
-    def test_invalid_toml_output(self):
+    def test_invalid_toml_output(self, py):
         """Malformed TOML becomes a DataSourceError naming the command."""
         source = ExecDataSource(py("print('not = = toml')"), fmt="toml")
         with pytest.raises(DataSourceError, match="Could not parse toml output"):

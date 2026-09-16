@@ -1,8 +1,5 @@
 """Tests for the template module."""
 
-import shlex
-import sys
-
 import pytest
 from weav.template import (
     TemplateError,
@@ -113,12 +110,7 @@ def test_compile_template_dict_data_namespaced_under_key(tmp_path):
     assert result == "example.com:8080"
 
 
-def py(code):
-    """Build a command string that runs Python code, for exec_commands tests."""
-    return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
-
-
-def test_compile_template_with_exec_command(tmp_path):
+def test_compile_template_with_exec_command(py, tmp_path):
     """compile_template runs --exec commands and namespaces their output."""
     template = tmp_path / "test.j2"
     template.write_text("{{ tasks.0.id }}")
@@ -127,7 +119,7 @@ def test_compile_template_with_exec_command(tmp_path):
     assert result == "T1"
 
 
-def test_compile_template_exec_merges_with_data(tmp_path):
+def test_compile_template_exec_merges_with_data(py, tmp_path):
     """--exec data merges alongside --data under separate keys."""
     template = tmp_path / "test.j2"
     template.write_text("{{ repos.name }}/{{ tasks.0.id }}")

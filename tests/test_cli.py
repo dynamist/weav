@@ -1,8 +1,5 @@
 """Tests for the CLI application."""
 
-import shlex
-import sys
-
 from typer.testing import CliRunner
 from weav import __version__
 from weav.cli import app
@@ -101,11 +98,6 @@ def test_render_with_nested_toml(tmp_path):
     assert "Port: 8080" in result.stdout
 
 
-def py(code):
-    """Build a command string that runs Python code, for --exec tests."""
-    return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
-
-
 def test_render_with_two_data_files(tmp_path):
     """Two --data flags are both namespaced and available to the template."""
     template = tmp_path / "test.j2"
@@ -122,7 +114,7 @@ def test_render_with_two_data_files(tmp_path):
     assert "T1 weav" in result.stdout
 
 
-def test_render_with_two_exec_commands(tmp_path):
+def test_render_with_two_exec_commands(py, tmp_path):
     """Two --exec flags feed two query results into one template."""
     template = tmp_path / "test.j2"
     template.write_text("{{ tasks.0.id }} {{ pastes.0.Name }}")
@@ -140,7 +132,7 @@ def test_render_with_two_exec_commands(tmp_path):
     assert "T1 notes" in result.stdout
 
 
-def test_exec_failure_exits_nonzero(tmp_path):
+def test_exec_failure_exits_nonzero(py, tmp_path):
     """A failing --exec command aborts rendering with exit code 1."""
     template = tmp_path / "test.j2"
     template.write_text("{{ tasks }}")
@@ -149,7 +141,7 @@ def test_exec_failure_exits_nonzero(tmp_path):
     assert "exit code 2" in result.output
 
 
-def test_exec_unknown_format_exits_nonzero(tmp_path):
+def test_exec_unknown_format_exits_nonzero(py, tmp_path):
     """An unknown format in a spec is reported as an error."""
     template = tmp_path / "test.j2"
     template.write_text("{{ tasks }}")
@@ -158,7 +150,7 @@ def test_exec_unknown_format_exits_nonzero(tmp_path):
     assert "Unknown format" in result.output
 
 
-def test_verbose_reports_exec_source(tmp_path):
+def test_verbose_reports_exec_source(py, tmp_path):
     """--verbose names each loaded source, including exec commands."""
     template = tmp_path / "test.j2"
     template.write_text("{{ tasks.0.id }}")
