@@ -1,5 +1,19 @@
 # Unreleased
 
+## New Features
+
+* **`--exec` / `-x` command data sources** - Run a command and use its stdout
+  as template data: `weav report.j2 --exec tasks:yaml='phabfive --format=yaml
+  maniphest search'`. Repeatable, so several query results can feed one
+  template. Commands run without a shell (argv is split with `shlex`), their
+  stderr is passed through, and a non-zero exit or unparseable output aborts
+  rendering with exit code 1 instead of producing a silently incomplete
+  document.
+* **Explicit format override** - Any `--data` or `--exec` spec may name its
+  parser as `KEY:FORMAT=SOURCE`, where FORMAT is `yaml`, `json` or `toml`.
+  This makes stdin and extensionless paths usable with non-YAML formats, e.g.
+  `--data :json=-` or `--data cfg:yaml=/dev/fd/63`.
+
 ## Bug Fixes
 
 * Autoescape no longer HTML-escapes substituted values in non-HTML templates
@@ -10,9 +24,17 @@
   `KEY`. Previously the key was silently ignored when the data was a mapping,
   so `{{ KEY.field }}` rendered as an empty string. YAML/JSON/stdin sources
   now match the (already correct) TOML behavior.
+* A data path containing `=` but no key prefix (such as
+  `--data ./my=dir/config.yaml`) is no longer misparsed as `KEY=FILE`. A
+  `KEY=` prefix is now only recognised when KEY looks like a name.
 
 ## Upgrade Notes
 
+* `weav.datasources.parse_data_spec()` now returns a 3-tuple
+  `(source, wrapper_key, format)` instead of a 2-tuple. Only affects code
+  using the programmatic API directly.
+* `weav.template.compile_template()` gained a keyword-only `exec_commands`
+  argument; existing calls are unaffected.
 * Templates that passed a mapping with `--data KEY=FILE` and relied on the
   mapping's keys landing at the top level of the context must either drop the
   `KEY=` prefix or access values as `{{ KEY.field }}`.

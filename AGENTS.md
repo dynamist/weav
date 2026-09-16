@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 ## Project Overview
 
-weav is a Jinja2 template compiler CLI. It renders templates with data from YAML files, supporting multiple data sources with deep merge, key-value parameters, and flexible template search paths.
+weav is a Jinja2 template compiler CLI. It renders templates with data from YAML, JSON and TOML files, stdin, environment variables and command output, supporting multiple data sources with deep merge, key-value parameters, and flexible template search paths.
 
 Note: The `weav` package on PyPI is unrelated to this project.
 
@@ -55,18 +55,29 @@ gh pr merge --rebase --delete-branch
   2. `./templates` in current directory
   3. `~/.local/share/weav/templates` (user data)
   4. `~/Documents/weav/templates` (user documents)
-- `parse_data_args()` - handles `KEY=FILE` syntax for data wrapping
+
+### Data Sources (`datasources.py`)
+- `DataSource` - Protocol (structural typing): a `name` property and `load() -> dict`
+- Implementations: `YamlDataSource`, `JsonDataSource`, `TomlDataSource`,
+  `StdinDataSource`, `ExecDataSource`, `KeyvalDataSource`, `EnvDataSource`
+- `ContextBuilder` - loads sources in order and deep-merges them (last wins)
+- `parse_data_spec()` - parses the `[KEY][:FORMAT]=SOURCE` spec grammar
+- `build_sources_from_args()` - bridges CLI arguments to `DataSource` objects
+- `get_parser()` / `_PARSERS` - format name to parser callable
+- `DataSourceError` - raised for bad formats and failed commands
 
 ### Utilities (`utils.py`)
-- `deep_merge()` - recursive dictionary merge
-- `load_and_wrap()` - load YAML with optional key wrapping (lists wrapped under "data" by default)
+- `deep_merge()` - recursive dictionary merge (lists are replaced, not concatenated)
+- `load_and_wrap()` - parse a stream with optional key wrapping (lists/scalars
+  wrapped under "data" when no key is given)
 - `mangle_keyval()` - parse KEY=VAL strings
 
 ### Data Flow
 1. CLI parses arguments → `compile_template()`
 2. Template located via `find_template()`
-3. YAML files loaded, wrapped, and deep-merged
-4. Key-value params override merged data
+3. `build_sources_from_args()` turns specs into `DataSource` objects
+4. `ContextBuilder` loads and deep-merges them in precedence order:
+   `--data` → `--exec` → `--env` → `--keyval` (last wins)
 5. Jinja2 renders template with final context
 
 ## Version Management

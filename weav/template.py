@@ -97,6 +97,7 @@ def compile_template(
     keyvals: list[str],
     *,
     env_prefixes: list[str] | None = None,
+    exec_commands: list[str] | None = None,
     verbose: bool = False,
 ) -> str:
     """Compile a Jinja2 template with data and return rendered output.
@@ -106,6 +107,7 @@ def compile_template(
         data_files: List of YAML data file specifications
         keyvals: List of key=value strings
         env_prefixes: List of environment variable prefixes to load
+        exec_commands: List of command specifications to run for data
         verbose: If True, print debug info to stderr
 
     Returns:
@@ -113,6 +115,7 @@ def compile_template(
 
     Raises:
         TemplateError: If template compilation fails
+        DataSourceError: If a data source fails to produce data
     """
     # Find and load the template
     loader, tpl_name = find_template(template_name)
@@ -122,7 +125,7 @@ def compile_template(
     template = env.get_template(tpl_name)
 
     # Build data sources from CLI arguments and merge them
-    sources = build_sources_from_args(data_files, keyvals, env_prefixes)
+    sources = build_sources_from_args(data_files, keyvals, env_prefixes, exec_commands)
     context = ContextBuilder(sources).build(verbose=verbose)
 
     return template.render(**context)

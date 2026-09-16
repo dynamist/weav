@@ -12,6 +12,8 @@ A markup template compiler with data support.
 - Environment variable support (programmatic API)
 - Flexible template search paths
 - Read data from stdin
+- Run commands and use their output as data (`--exec`)
+- Explicit per-source format override (`KEY:FORMAT=SOURCE`)
 
 ## Installation
 
@@ -78,6 +80,51 @@ Reading data from stdin:
 cat data.yaml | weav template.j2 --data -
 ```
 
+### Running commands as data sources
+
+`--exec` runs a command and uses its standard output as data. This is the way
+to combine several query results in one template:
+
+```bash
+weav report.j2 \
+  --exec tasks:yaml='phabfive --format=yaml maniphest search --limit 10' \
+  --exec pastes:json='phabfive --format=json paste search --limit 10'
+```
+
+Each command's stdout is parsed and namespaced under its key, so the template
+sees `{{ tasks }}` and `{{ pastes }}`. If a command exits non-zero, weav
+reports the failure and exits 1 rather than rendering an incomplete document.
+The command's own stderr is passed through untouched.
+
+Commands run **without a shell**, so pipes, redirects and globs are not
+interpreted — the command string is split into arguments the way a shell would
+split it, then executed directly. When you need a pipeline, use process
+substitution with `--data` instead:
+
+```bash
+weav report.j2 --data tasks=<(phabfive --format=yaml maniphest search | head -50)
+```
+
+Note that quoting is consumed twice: once by your shell, once by weav. A
+command containing quotes needs them escaped or nested.
+
+### Choosing a format explicitly
+
+Data files pick a parser from their suffix, which does not work for stdin,
+extensionless files, or `--exec` commands. Prefix any spec with `:FORMAT` to be
+explicit:
+
+```bash
+weav template.j2 --data config:yaml=/dev/fd/63   # extensionless path
+weav template.j2 --data :json=-                  # stdin as JSON
+weav template.j2 --exec items:json='some-query'  # command output as JSON
+```
+
+The full spec grammar for `--data` and `--exec` is `[KEY][:FORMAT]=SOURCE`,
+where FORMAT is `yaml`, `json` or `toml`. A `KEY=` prefix is only recognised
+when KEY looks like a name, so paths and commands containing `=` (such as
+`phabfive --format=yaml ...`) are left intact.
+
 Using environment variables:
 
 ```bash
@@ -90,6 +137,15 @@ weav template.j2 --env MYAPP_
 # Combine with data files (env vars override file values)
 weav template.j2 --data config.yaml --env MYAPP_
 ```
+
+### Precedence
+
+Sources are merged in a fixed order, with later sources overriding earlier ones:
+
+1. `--data` files, in command-line order
+2. `--exec` commands, in command-line order
+3. `--env` prefixes
+4. `--keyval` pairs
 
 ## Template Search Paths
 
@@ -106,7 +162,8 @@ You can also specify a direct file path to a template.
 
 | Option | Description |
 |--------|-------------|
-| `-d, --data` | YAML/JSON/TOML data file(s). Use `KEY=FILE` to wrap under key. Use `-` for stdin. |
+| `-d, --data` | YAML/JSON/TOML data file(s). Use `KEY=FILE` to wrap under key, `KEY:FORMAT=FILE` to force a format. Use `-` for stdin. |
+| `-x, --exec` | Run a command and use its stdout as data. Same `KEY[:FORMAT]=` syntax. Runs without a shell. Can specify multiple times. |
 | `-e, --env` | Environment variable prefix (e.g., `MYAPP_`). Can specify multiple times. |
 | `-k, --keyval` | Key-value pairs (`KEY=VAL`). Can specify multiple times. |
 | `-v, --verbose` | Show verbose output (loaded files, etc.) |
@@ -123,6 +180,7 @@ from weav.datasources import (
     JsonDataSource,
     TomlDataSource,
     EnvDataSource,
+    ExecDataSource,
     KeyvalDataSource,
     ContextBuilder,
 )
@@ -133,6 +191,7 @@ builder = ContextBuilder()
 builder.add(YamlDataSource(Path("base.yaml")))
 builder.add(JsonDataSource(Path("override.json")))
 builder.add(TomlDataSource(Path("settings.toml")))
+builder.add(ExecDataSource("phabfive --format=yaml paste search", "pastes"))
 builder.add(EnvDataSource(prefix="MYAPP_"))  # Read MYAPP_* env vars
 builder.add(KeyvalDataSource(["debug=true"]))
 
@@ -143,6 +202,7 @@ result = compile_template(
     "template.j2",
     data_files=["config.yaml", "data.json", "settings.toml"],
     keyvals=["name=World"],
+    exec_commands=["pastes:yaml=phabfive --format=yaml paste search"],
 )
 ```
 
@@ -156,6 +216,7 @@ result = compile_template(
 | `EnvDataSource` | Load data from environment variables |
 | `KeyvalDataSource` | Load data from key=value strings |
 | `StdinDataSource` | Load data from standard input |
+| `ExecDataSource` | Run a command and load data from its stdout |
 
 ## License
 

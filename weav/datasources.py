@@ -7,16 +7,69 @@ various backends (files, CLI arguments, environment variables, etc.).
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import re
+import shlex
+import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TextIO
 
 from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 from weav.utils import deep_merge, load_and_wrap, mangle_keyval
+
+
+class DataSourceError(Exception):
+    """Error raised when a data source fails to produce data."""
+
+
+def _parse_yaml(file_obj: TextIO) -> Any:  # noqa: ANN401
+    """Parse YAML from a text stream; the document shape is arbitrary."""
+    return YAML(typ="safe").load(file_obj)
+
+
+def _parse_toml(file_obj: TextIO) -> Any:  # noqa: ANN401
+    """Parse TOML from a text stream; the document shape is arbitrary.
+
+    tomllib.load() requires a binary handle, so read the text and use loads().
+    """
+    return tomllib.loads(file_obj.read())
+
+
+_PARSERS: dict[str, Callable[[TextIO], Any]] = {
+    "yaml": _parse_yaml,
+    "json": json.load,
+    "toml": _parse_toml,
+}
+
+#: Format names accepted by the KEY:FORMAT=SOURCE spec syntax.
+FORMATS: tuple[str, ...] = tuple(_PARSERS)
+
+
+def get_parser(fmt: str) -> Callable[[TextIO], Any]:
+    """Return the parser callable for a format name.
+
+    Args:
+        fmt: One of the names in FORMATS ("yaml", "json", "toml")
+
+    Returns:
+        A callable taking a text stream and returning the parsed data
+
+    Raises:
+        DataSourceError: If the format name is not recognised
+    """
+    try:
+        return _PARSERS[fmt]
+    except KeyError:
+        valid = ", ".join(FORMATS)
+        msg = f"Unknown format '{fmt}'. Valid formats: {valid}"
+        raise DataSourceError(msg) from None
 
 
 class DataSource(Protocol):
@@ -172,15 +225,20 @@ class StdinDataSource:
 
     Args:
         wrapper_key: Optional key to namespace the loaded data under
+        fmt: Format to parse stdin as (one of FORMATS); defaults to YAML
 
     Example:
         >>> source = StdinDataSource()
         >>> data = source.load()  # Reads YAML from stdin
+
+        >>> source = StdinDataSource(fmt="json")
+        >>> data = source.load()  # Reads JSON from stdin
     """
 
-    def __init__(self, wrapper_key: str | None = None) -> None:
+    def __init__(self, wrapper_key: str | None = None, fmt: str = "yaml") -> None:
         self._wrapper_key = wrapper_key
-        self._yaml = YAML(typ="safe")
+        self._fmt = fmt
+        self._parser = get_parser(fmt)
 
     @property
     def name(self) -> str:
@@ -188,12 +246,81 @@ class StdinDataSource:
         return "<stdin>"
 
     def load(self) -> dict[str, Any]:
-        """Load YAML data from stdin and return as dictionary.
+        """Load data from stdin and return as dictionary.
 
         Returns:
             Dictionary with loaded data, optionally wrapped under wrapper_key
         """
-        return load_and_wrap(self._yaml.load, sys.stdin, self._wrapper_key)
+        return load_and_wrap(self._parser, sys.stdin, self._wrapper_key)
+
+
+class ExecDataSource:
+    """Run a command and use its standard output as data.
+
+    The command is split with shlex and executed directly, without a shell,
+    so shell metacharacters (pipes, redirects, globs) are not interpreted.
+    The command's stderr is inherited rather than captured, so its own
+    diagnostics reach the user as they would in a shell pipeline.
+
+    Args:
+        command: Command line to run, e.g. "phabfive --format=yaml paste search"
+        wrapper_key: Optional key to namespace the loaded data under
+        fmt: Format to parse the command's stdout as; defaults to YAML
+
+    Example:
+        >>> source = ExecDataSource("date +%Y", wrapper_key="year")
+        >>> data = source.load()
+    """
+
+    def __init__(
+        self,
+        command: str,
+        wrapper_key: str | None = None,
+        fmt: str = "yaml",
+    ) -> None:
+        self._command = command
+        self._wrapper_key = wrapper_key
+        self._fmt = fmt
+        self._parser = get_parser(fmt)
+
+    @property
+    def name(self) -> str:
+        """Return the command as identifier."""
+        return f"exec:{self._command}"
+
+    def load(self) -> dict[str, Any]:
+        """Run the command and parse its stdout.
+
+        Returns:
+            Dictionary with parsed data, optionally wrapped under wrapper_key
+
+        Raises:
+            DataSourceError: If the command is empty, exits non-zero, or its
+                output cannot be parsed as the expected format
+            FileNotFoundError: If the executable does not exist
+        """
+        argv = shlex.split(self._command)
+        if not argv:
+            msg = f"Empty command: {self._command!r}"
+            raise DataSourceError(msg)
+
+        # S603: shell=False and argv comes from shlex.split, so no shell
+        # metacharacters are evaluated. The command is user-supplied by design.
+        proc = subprocess.run(  # noqa: S603
+            argv,
+            stdout=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            msg = f"Command failed with exit code {proc.returncode}: {self._command}"
+            raise DataSourceError(msg)
+
+        try:
+            return load_and_wrap(self._parser, io.StringIO(proc.stdout), self._wrapper_key)
+        except (YAMLError, ValueError) as exc:
+            msg = f"Could not parse {self._fmt} output of command: {self._command}\n{exc}"
+            raise DataSourceError(msg) from exc
 
 
 class KeyvalDataSource:
@@ -347,62 +474,112 @@ class ContextBuilder:
         return result
 
 
-def parse_data_spec(spec: str) -> tuple[str, str | None]:
-    """Parse a data file specification into path and optional wrapper key.
+#: Matches an optional "KEY", optional ":FORMAT" and the "=" that ends the
+#: prefix of a data spec. The key deliberately excludes whitespace and path
+#: characters so that bare paths ("./my=dir/x.yaml") and commands containing
+#: "=" ("phabfive --format=yaml ...") are not mistaken for a KEY= prefix.
+_SPEC_RE = re.compile(r"^(?P<key>[^\s/\\:=.]+)?(?::(?P<fmt>[A-Za-z0-9_]+))?=")
+
+#: File suffixes that imply a format when none is given explicitly.
+_SUFFIX_FORMATS = {".json": "json", ".toml": "toml"}
+
+
+def parse_data_spec(spec: str) -> tuple[str, str | None, str | None]:
+    r"""Parse a data specification into source, wrapper key and format.
+
+    The grammar is ``[KEY][:FORMAT]=SOURCE``, where SOURCE is a file path,
+    ``-`` for stdin, or (for --exec) a command line.
+
+    A prefix is only recognised when KEY looks like a name: it may not contain
+    whitespace, ``/``, ``\``, ``:``, ``=`` or ``.``. This keeps bare paths and
+    commands that contain ``=`` intact.
 
     Args:
-        spec: Data file specification. Can be:
-            - A filename (e.g., "config.yaml")
-            - "-" for stdin
-            - "key=filename" to wrap the data under a key
+        spec: Data specification
 
     Returns:
-        Tuple of (path, wrapper_key or None)
+        Tuple of (source, wrapper_key or None, format or None)
 
     Example:
         >>> parse_data_spec("config.yaml")
-        ('config.yaml', None)
+        ('config.yaml', None, None)
         >>> parse_data_spec("items=tasks.yaml")
-        ('tasks.yaml', 'items')
-        >>> parse_data_spec("-")
-        ('-', None)
+        ('tasks.yaml', 'items', None)
+        >>> parse_data_spec("items:json=out")
+        ('out', 'items', 'json')
+        >>> parse_data_spec(":json=-")
+        ('-', None, 'json')
+        >>> parse_data_spec("phabfive --format=yaml paste search")
+        ('phabfive --format=yaml paste search', None, None)
     """
-    if "=" in spec:
-        wrapper_key, path = spec.split("=", 1)
-        return (path, wrapper_key)
-    return (spec, None)
+    match = _SPEC_RE.match(spec)
+    if match is None:
+        return (spec, None, None)
+    return (spec[match.end() :], match.group("key"), match.group("fmt"))
+
+
+def _file_source(path: Path, wrapper_key: str | None, fmt: str | None) -> DataSource:
+    """Return the data source for a file, choosing a parser by format or suffix.
+
+    Args:
+        path: Path to the data file
+        wrapper_key: Optional key to namespace the loaded data under
+        fmt: Explicit format, or None to infer from the file suffix
+
+    Returns:
+        A data source for the file
+
+    Raises:
+        DataSourceError: If an explicit format is not recognised
+    """
+    if fmt is None:
+        fmt = _SUFFIX_FORMATS.get(path.suffix, "yaml")
+    get_parser(fmt)  # validates the format name
+    if fmt == "json":
+        return JsonDataSource(path, wrapper_key)
+    if fmt == "toml":
+        return TomlDataSource(path, wrapper_key)
+    return YamlDataSource(path, wrapper_key)
 
 
 def build_sources_from_args(
     data_files: list[str],
     keyvals: list[str],
     env_prefixes: list[str] | None = None,
+    exec_commands: list[str] | None = None,
 ) -> list[DataSource]:
     """Convert CLI arguments to DataSource objects.
 
     This is the bridge between CLI argument parsing and the DataSource
     abstraction layer.
 
+    Precedence is fixed and documented (last wins):
+    --data files, then --exec commands, then --env prefixes, then --keyval.
+
     Args:
         data_files: List of data file specifications
         keyvals: List of key=value strings
         env_prefixes: List of environment variable prefixes to load
+        exec_commands: List of command specifications to run for data
 
     Returns:
         List of DataSource objects in precedence order (last wins)
+
+    Raises:
+        DataSourceError: If a spec names an unrecognised format
     """
     sources: list[DataSource] = []
 
     for spec in data_files:
-        path, wrapper_key = parse_data_spec(spec)
+        path, wrapper_key, fmt = parse_data_spec(spec)
         if path == "-":
-            sources.append(StdinDataSource(wrapper_key))
-        elif path.endswith(".json"):
-            sources.append(JsonDataSource(Path(path), wrapper_key))
-        elif path.endswith(".toml"):
-            sources.append(TomlDataSource(Path(path), wrapper_key))
+            sources.append(StdinDataSource(wrapper_key, fmt or "yaml"))
         else:
-            sources.append(YamlDataSource(Path(path), wrapper_key))
+            sources.append(_file_source(Path(path), wrapper_key, fmt))
+
+    for spec in exec_commands or []:
+        command, wrapper_key, fmt = parse_data_spec(spec)
+        sources.append(ExecDataSource(command, wrapper_key, fmt or "yaml"))
 
     if env_prefixes:
         for prefix in env_prefixes:

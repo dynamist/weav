@@ -1,20 +1,31 @@
 """Tests for the datasources module."""
 
 import io
+import shlex
+import sys
 from pathlib import Path
 
 import pytest
 from weav.datasources import (
     ContextBuilder,
+    DataSourceError,
     EnvDataSource,
+    ExecDataSource,
     JsonDataSource,
     KeyvalDataSource,
     StdinDataSource,
     TomlDataSource,
     YamlDataSource,
     build_sources_from_args,
+    get_parser,
     parse_data_spec,
 )
+
+
+def py(code, *args):
+    """Build a command string that runs Python code, for ExecDataSource tests."""
+    parts = [sys.executable, "-c", code, *args]
+    return " ".join(shlex.quote(part) for part in parts)
 
 
 class TestYamlDataSource:
@@ -420,27 +431,137 @@ class TestParseDataSpec:
 
     def test_simple_filename(self):
         """Test parsing a simple filename."""
-        path, wrapper = parse_data_spec("config.yaml")
-        assert path == "config.yaml"
-        assert wrapper is None
+        assert parse_data_spec("config.yaml") == ("config.yaml", None, None)
 
     def test_stdin_marker(self):
         """Test parsing stdin marker."""
-        path, wrapper = parse_data_spec("-")
-        assert path == "-"
-        assert wrapper is None
+        assert parse_data_spec("-") == ("-", None, None)
 
     def test_wrapped_filename(self):
         """Test parsing key=filename format."""
-        path, wrapper = parse_data_spec("items=tasks.yaml")
-        assert path == "tasks.yaml"
-        assert wrapper == "items"
+        assert parse_data_spec("items=tasks.yaml") == ("tasks.yaml", "items", None)
 
     def test_wrapped_stdin(self):
         """Test parsing key=- format."""
-        path, wrapper = parse_data_spec("data=-")
-        assert path == "-"
-        assert wrapper == "data"
+        assert parse_data_spec("data=-") == ("-", "data", None)
+
+    def test_key_and_format(self):
+        """Test parsing KEY:FORMAT=SOURCE."""
+        assert parse_data_spec("items:json=out") == ("out", "items", "json")
+
+    def test_format_without_key(self):
+        """Test parsing :FORMAT=SOURCE, used to force a format on stdin."""
+        assert parse_data_spec(":json=-") == ("-", None, "json")
+
+    def test_hyphenated_key(self):
+        """Test that a hyphenated key is still recognised."""
+        assert parse_data_spec("my-key=f.yaml") == ("f.yaml", "my-key", None)
+
+    def test_bare_command_containing_equals(self):
+        """A command with '=' in it is not mistaken for a KEY= prefix."""
+        spec = "phabfive --format=yaml paste search"
+        assert parse_data_spec(spec) == (spec, None, None)
+
+    def test_wrapped_command_containing_equals(self):
+        """Only the first '=' after a name-like prefix starts the source."""
+        spec = "pastes:yaml=phabfive --format=yaml paste search"
+        assert parse_data_spec(spec) == (
+            "phabfive --format=yaml paste search",
+            "pastes",
+            "yaml",
+        )
+
+    def test_path_containing_equals_is_not_a_key(self):
+        """A path with '=' but no name-like prefix stays a path."""
+        spec = "./my=dir/config.yaml"
+        assert parse_data_spec(spec) == (spec, None, None)
+
+    def test_windows_path_is_not_a_format(self):
+        """A drive letter is not parsed as KEY:FORMAT."""
+        assert parse_data_spec(r"k=C:\x.yaml") == (r"C:\x.yaml", "k", None)
+
+
+class TestGetParser:
+    """Tests for get_parser."""
+
+    @pytest.mark.parametrize("fmt", ["yaml", "json", "toml"])
+    def test_known_formats(self, fmt):
+        """Test that each supported format resolves to a callable."""
+        assert callable(get_parser(fmt))
+
+    def test_unknown_format(self):
+        """Test that an unknown format raises with the valid names listed."""
+        with pytest.raises(DataSourceError, match="Unknown format 'xml'"):
+            get_parser("xml")
+
+
+class TestExecDataSource:
+    """Tests for ExecDataSource."""
+
+    def test_load_yaml_output(self):
+        """Test running a command whose stdout is YAML."""
+        source = ExecDataSource(py("print('host: example.com')"))
+        assert source.load() == {"host": "example.com"}
+
+    def test_load_json_output(self):
+        """Test running a command whose stdout is JSON."""
+        code = 'print(\'{"host": "example.com"}\')'
+        assert ExecDataSource(py(code), fmt="json").load() == {"host": "example.com"}
+
+    def test_load_toml_output(self):
+        """Test running a command whose stdout is TOML."""
+        code = "print('host = \"example.com\"')"
+        assert ExecDataSource(py(code), fmt="toml").load() == {"host": "example.com"}
+
+    def test_load_list_with_wrapper(self):
+        """A list output is namespaced under the wrapper key."""
+        source = ExecDataSource(py("print('- a\\n- b')"), wrapper_key="items")
+        assert source.load() == {"items": ["a", "b"]}
+
+    def test_load_list_without_wrapper(self):
+        """A list output without a key falls back to the 'data' key."""
+        source = ExecDataSource(py("print('- a\\n- b')"))
+        assert source.load() == {"data": ["a", "b"]}
+
+    def test_empty_output(self):
+        """Empty stdout yields None under the wrapper key, not an error.
+
+        This is the phabfive no-results case: it prints nothing at all.
+        """
+        source = ExecDataSource(py("pass"), wrapper_key="items")
+        assert source.load() == {"items": None}
+
+    def test_nonzero_exit_raises(self):
+        """A failing command raises DataSourceError naming the exit code."""
+        source = ExecDataSource(py("raise SystemExit(3)"))
+        with pytest.raises(DataSourceError, match="exit code 3"):
+            source.load()
+
+    def test_missing_executable_raises(self):
+        """A nonexistent executable surfaces as FileNotFoundError."""
+        source = ExecDataSource("weav-no-such-command-xyz")
+        with pytest.raises(FileNotFoundError):
+            source.load()
+
+    def test_empty_command_raises(self):
+        """An empty command string raises DataSourceError."""
+        with pytest.raises(DataSourceError, match="Empty command"):
+            ExecDataSource("   ").load()
+
+    def test_unknown_format_raises_at_construction(self):
+        """An unknown format fails before the command is ever run."""
+        with pytest.raises(DataSourceError, match="Unknown format"):
+            ExecDataSource(py("pass"), fmt="xml")
+
+    def test_no_shell_interpretation(self):
+        """Shell metacharacters reach the command as literal arguments."""
+        code = "import json, sys; print(json.dumps({'arg': sys.argv[1]}))"
+        source = ExecDataSource(py(code, "a | b > c"), fmt="json")
+        assert source.load() == {"arg": "a | b > c"}
+
+    def test_name_includes_command(self):
+        """The source name identifies the command for --verbose output."""
+        assert ExecDataSource("echo hi").name == "exec:echo hi"
 
 
 class TestBuildSourcesFromArgs:
@@ -535,3 +656,65 @@ class TestBuildSourcesFromArgs:
         sources = build_sources_from_args(["config=settings.toml"], [])
         assert len(sources) == 1
         assert isinstance(sources[0], TomlDataSource)
+
+    def test_format_override_beats_suffix(self):
+        """An explicit format wins over the file suffix."""
+        sources = build_sources_from_args(["cfg:yaml=data.json"], [])
+        assert len(sources) == 1
+        assert isinstance(sources[0], YamlDataSource)
+        assert sources[0].name == "data.json"
+
+    def test_format_override_on_extensionless_file(self):
+        """A file with no suffix can be forced to a format."""
+        sources = build_sources_from_args(["cfg:json=/dev/fd/63"], [])
+        assert isinstance(sources[0], JsonDataSource)
+
+    def test_format_override_on_stdin(self):
+        """Stdin can be parsed as something other than YAML."""
+        sources = build_sources_from_args([":json=-"], [])
+        assert isinstance(sources[0], StdinDataSource)
+        assert sources[0].name == "<stdin>"
+
+    def test_unknown_format_raises(self):
+        """An unrecognised format is rejected while building sources."""
+        with pytest.raises(DataSourceError, match="Unknown format"):
+            build_sources_from_args(["cfg:xml=data.txt"], [])
+
+    def test_exec_commands(self):
+        """Exec specs become ExecDataSource objects."""
+        sources = build_sources_from_args([], [], None, ["tasks=echo hi"])
+        assert len(sources) == 1
+        assert isinstance(sources[0], ExecDataSource)
+        assert sources[0].name == "exec:echo hi"
+
+    def test_exec_after_data_before_keyval(self):
+        """Precedence: --data, then --exec, then --env, then --keyval."""
+        sources = build_sources_from_args(["base.yaml"], ["k=v"], ["APP_"], ["tasks=echo hi"])
+        assert [type(s).__name__ for s in sources] == [
+            "YamlDataSource",
+            "ExecDataSource",
+            "EnvDataSource",
+            "KeyvalDataSource",
+        ]
+
+
+class TestExecDataSourceParseErrors:
+    """Tests that unparseable command output is reported cleanly."""
+
+    def test_invalid_json_output(self):
+        """Malformed JSON becomes a DataSourceError naming the command."""
+        source = ExecDataSource(py("print('{not json')"), fmt="json")
+        with pytest.raises(DataSourceError, match="Could not parse json output"):
+            source.load()
+
+    def test_invalid_yaml_output(self):
+        """Malformed YAML becomes a DataSourceError naming the command."""
+        source = ExecDataSource(py("print('a: [1, 2')"))
+        with pytest.raises(DataSourceError, match="Could not parse yaml output"):
+            source.load()
+
+    def test_invalid_toml_output(self):
+        """Malformed TOML becomes a DataSourceError naming the command."""
+        source = ExecDataSource(py("print('not = = toml')"), fmt="toml")
+        with pytest.raises(DataSourceError, match="Could not parse toml output"):
+            source.load()

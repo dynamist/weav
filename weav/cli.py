@@ -11,6 +11,7 @@ import typer
 from rich.console import Console
 
 from weav import __version__
+from weav.datasources import DataSourceError
 from weav.template import TemplateError, compile_template
 
 console = Console()
@@ -50,7 +51,18 @@ def main(
         typer.Option(
             "--data",
             "-d",
-            help="Data file (YAML/JSON/TOML). Use KEY=FILE to wrap under key. '-' for stdin.",
+            help="Data file (YAML/JSON/TOML). Use KEY=FILE to wrap under key, "
+            "KEY:FORMAT=FILE to force a format. '-' for stdin.",
+        ),
+    ] = [],  # noqa: B006
+    exec_: Annotated[
+        list[str],
+        typer.Option(
+            "--exec",
+            "-x",
+            help="Run COMMAND and use its stdout as data. Use KEY=COMMAND to wrap "
+            "under key, KEY:FORMAT=COMMAND to force yaml/json/toml. Runs without "
+            "a shell. Can specify multiple times.",
         ),
     ] = [],  # noqa: B006
     keyval: Annotated[
@@ -103,11 +115,20 @@ def main(
         cat data.yaml | weav template.j2 --data -
 
         weav template.j2 --env MYAPP_
+
+        weav report.j2 --exec tasks:yaml='phabfive --format=yaml maniphest search'
     """
     try:
-        result = compile_template(template, data, keyval, env_prefixes=env or None, verbose=verbose)
+        result = compile_template(
+            template,
+            data,
+            keyval,
+            env_prefixes=env or None,
+            exec_commands=exec_ or None,
+            verbose=verbose,
+        )
         console.print(result, highlight=False, soft_wrap=True, markup=False)
-    except TemplateError as e:
+    except (TemplateError, DataSourceError) as e:
         err_console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from e
     except FileNotFoundError as e:

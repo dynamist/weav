@@ -1,5 +1,8 @@
 """Tests for the CLI application."""
 
+import shlex
+import sys
+
 from typer.testing import CliRunner
 from weav import __version__
 from weav.cli import app
@@ -96,3 +99,70 @@ def test_render_with_nested_toml(tmp_path):
     assert result.exit_code == 0
     assert "Host: localhost" in result.stdout
     assert "Port: 8080" in result.stdout
+
+
+def py(code):
+    """Build a command string that runs Python code, for --exec tests."""
+    return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+
+
+def test_render_with_two_data_files(tmp_path):
+    """Two --data flags are both namespaced and available to the template."""
+    template = tmp_path / "test.j2"
+    template.write_text("{{ tasks.0.id }} {{ repos.name }}")
+    tasks = tmp_path / "tasks.yaml"
+    tasks.write_text("- id: T1\n")
+    repos = tmp_path / "repos.yaml"
+    repos.write_text("name: weav\n")
+    result = runner.invoke(
+        app,
+        [str(template), "--data", f"tasks={tasks}", "--data", f"repos={repos}"],
+    )
+    assert result.exit_code == 0
+    assert "T1 weav" in result.stdout
+
+
+def test_render_with_two_exec_commands(tmp_path):
+    """Two --exec flags feed two query results into one template."""
+    template = tmp_path / "test.j2"
+    template.write_text("{{ tasks.0.id }} {{ pastes.0.Name }}")
+    result = runner.invoke(
+        app,
+        [
+            str(template),
+            "--exec",
+            "tasks:yaml=" + py("print('- id: T1')"),
+            "--exec",
+            "pastes:json=" + py('print(\'[{"Name": "notes"}]\')'),
+        ],
+    )
+    assert result.exit_code == 0
+    assert "T1 notes" in result.stdout
+
+
+def test_exec_failure_exits_nonzero(tmp_path):
+    """A failing --exec command aborts rendering with exit code 1."""
+    template = tmp_path / "test.j2"
+    template.write_text("{{ tasks }}")
+    result = runner.invoke(app, [str(template), "--exec", "tasks=" + py("raise SystemExit(2)")])
+    assert result.exit_code == 1
+    assert "exit code 2" in result.output
+
+
+def test_exec_unknown_format_exits_nonzero(tmp_path):
+    """An unknown format in a spec is reported as an error."""
+    template = tmp_path / "test.j2"
+    template.write_text("{{ tasks }}")
+    result = runner.invoke(app, [str(template), "--exec", "tasks:xml=" + py("pass")])
+    assert result.exit_code == 1
+    assert "Unknown format" in result.output
+
+
+def test_verbose_reports_exec_source(tmp_path):
+    """--verbose names each loaded source, including exec commands."""
+    template = tmp_path / "test.j2"
+    template.write_text("{{ tasks.0.id }}")
+    command = py("print('- id: T1')")
+    result = runner.invoke(app, [str(template), "--verbose", "--exec", f"tasks={command}"])
+    assert result.exit_code == 0
+    assert f"Loaded exec:{command} with keys: ['tasks']" in result.output
