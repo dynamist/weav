@@ -23,7 +23,7 @@ uv run weav template.j2 --keyval name=World
 uv run pytest                        # quick test with coverage
 uv run pytest tests/test_cli.py      # run single test file
 uv run pytest -k test_name           # run specific test
-uv run tox                           # test Python 3.11-3.12 + lint + type
+uv run tox                           # test Python 3.11-3.14 + lint + type
 
 # Lint and format
 uv run ruff check weav tests         # lint
