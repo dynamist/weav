@@ -93,6 +93,21 @@ from importlib.metadata import version
 version("weav")
 ```
 
+## Dependency Updates
+
+Renovate (Mend app, `renovate.json`) is the only bot. Dependabot *alerts* stay enabled because
+Renovate reads them for `vulnerabilityAlerts`, but its automated security PRs are turned off.
+
+- Runtime deps under `[project.dependencies]` keep loose `>=` floors: weav ships as a wheel and
+  must not over-constrain consumers. Renovate never bumps them; `lockFileMaintenance` (weekly
+  `uv lock --upgrade`) is what keeps the resolved versions and transitive deps current.
+- Dev/test tooling in `[dependency-groups]` / `[project.optional-dependencies]` uses
+  `rangeStrategy: bump`, so the floors track the revs pinned in `.pre-commit-config.yaml`. That
+  is what makes the `ruff`, `uv` and `mypy` groups update both files in one PR.
+- `minimumReleaseAge: "5 days"` exists to stay behind `[tool.uv] exclude-newer = "4 days"` in
+  `pyproject.toml`. uv resolves as if four days ago, so a fresher version would be proposed but
+  could not be locked. Change the two together or lock file updates start failing.
+
 ## Release Workflow
 
 Releases are triggered by pushing a git tag matching `v*`:

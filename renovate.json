@@ -10,10 +10,29 @@
   "labels": [
     "dependencies"
   ],
+  "minimumReleaseAge": "5 days",
+  "osvVulnerabilityAlerts": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 6am on monday"
+    ]
+  },
   "pre-commit": {
     "enabled": true
   },
   "packageRules": [
+    {
+      "description": "Bump the floors of dev/test tooling so they track what we pin elsewhere (pre-commit revs, CI), which makes the ruff/uv/mypy lockstep groups update both sides. Runtime deps under project.dependencies keep their loose floors on purpose: weav ships as a wheel and must not over-constrain consumers, so uv.lock (see lockFileMaintenance) is what keeps those current.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "dependency-groups",
+        "project.optional-dependencies"
+      ],
+      "rangeStrategy": "bump"
+    },
     {
       "description": "Group dev/test tooling (Python) into one PR",
       "matchManagers": [
