@@ -98,6 +98,9 @@ version("weav")
 
 Renovate (Mend app, `renovate.json`) is the only bot. Dependabot *alerts* stay enabled because
 Renovate reads them for `vulnerabilityAlerts`, but its automated security PRs are turned off.
+Nothing therefore raises a fix PR for a vulnerability that only exists in `uv.lock` - the alert
+shows up under Security and the weekly lock refresh (or `uv lock --upgrade-package NAME`) is what
+resolves it.
 
 - Runtime deps under `[project.dependencies]` keep loose `>=` floors: weav ships as a wheel and
   must not over-constrain consumers. Renovate never bumps them; `lockFileMaintenance` (weekly
@@ -109,6 +112,9 @@ Renovate reads them for `vulnerabilityAlerts`, but its automated security PRs ar
 - `minimumReleaseAge: "5 days"` exists to stay behind `[tool.uv] exclude-newer = "4 days"` in
   `pyproject.toml`. uv resolves as if four days ago, so a fresher version would be proposed but
   could not be locked. Change the two together or lock file updates start failing.
+- Leave `osvVulnerabilityAlerts` off. The hosted app cannot download the OSV database, so it only
+  logs "Unable to read vulnerability information" as a repository problem
+  (renovatebot/renovate#22502).
 
 ## Release Workflow
 
