@@ -28,8 +28,7 @@
         "pep621"
       ],
       "matchDepTypes": [
-        "dependency-groups",
-        "project.optional-dependencies"
+        "dependency-groups"
       ],
       "rangeStrategy": "bump"
     },
