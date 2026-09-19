@@ -128,3 +128,18 @@ def test_mangle_keyval_rejects_a_pair_without_a_value():
     """A malformed pair is an error, not a silently empty value."""
     with pytest.raises(ValueError, match="expected KEY=VALUE"):
         mangle_keyval(["typo"])
+
+
+def test_mangle_keyval_rejects_an_empty_key():
+    """An empty key must not be written into a document."""
+    for arg in ("=", "=v"):
+        with pytest.raises(ValueError, match="expected KEY=VALUE"):
+            mangle_keyval([arg])
+
+
+def test_mangle_keyval_strips_padded_keys():
+    """Splitting on ", " must not leave a leading space on the next key."""
+    assert mangle_keyval(["title=Hello, name=World"]) == {
+        "title": "Hello",
+        "name": "World",
+    }

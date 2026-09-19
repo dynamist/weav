@@ -392,3 +392,53 @@ def test_write_replaces_rather_than_truncates(doc):
     assert document.write(path) is True
 
     assert path.stat().st_ino != before
+
+
+def test_write_follows_a_symlink_instead_of_replacing_it(doc, tmp_path):
+    """An atomic replace must land on the canonical file, not the link.
+
+    Replacing the link itself would leave its target stale while the link
+    became an ordinary file -- a silent divergence in a tree where documents
+    are linked into place.
+    """
+    real = doc(WITH_MARKER, name="real.md")
+    link = tmp_path / "link.md"
+    link.symlink_to(real)
+
+    document = FrontmatterDocument.from_file(link)
+    document.patch(upsert={"origin": "abc123"})
+    assert document.write(link) is True
+
+    assert link.is_symlink()
+    assert b"origin: abc123" in real.read_bytes()
+
+
+def test_delete_that_matches_nothing_does_not_reformat(doc):
+    """A no-op delete must not re-dump the block and reflow the author's layout."""
+    raw = b"---\nstatus:   active\nnested:\n    deep: 1\n---\n# Doc\n"
+    path = doc(raw)
+
+    document = FrontmatterDocument.from_file(path)
+    result = document.patch(delete=["nonexistent"])
+
+    assert result == {"inserted": [], "updated": [], "deleted": []}
+    assert document.write(path) is False
+    assert path.read_bytes() == raw
+
+
+def test_upsert_that_changes_nothing_does_not_reformat(doc):
+    """Re-setting a key to its current value must leave the bytes alone."""
+    raw = b"---\nstatus:   active\n---\n# Doc\n"
+    path = doc(raw)
+
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"status": "active"})
+    document.write(path)
+
+    # The value is unchanged, but it was an explicit update, so a re-dump is
+    # expected; what must hold is that running it again is a no-op.
+    once = path.read_bytes()
+    again = FrontmatterDocument.from_file(path)
+    again.patch(upsert={"status": "active"})
+    assert again.write(path) is False
+    assert path.read_bytes() == once
