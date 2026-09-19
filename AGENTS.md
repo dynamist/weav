@@ -25,6 +25,7 @@ uv run pytest                        # quick test with coverage
 uv run pytest tests/test_cli.py      # run single test file
 uv run pytest -k test_name           # run specific test
 uv run tox                           # test Python 3.11-3.14 + lint + type
+uv run tox -e smoke                  # build a wheel, install it, run the CLI
 
 # Lint and format
 uv run ruff check weav tests         # lint
@@ -203,6 +204,63 @@ resolves it.
   logs "Unable to read vulnerability information" as a repository problem
   (renovatebot/renovate#22502).
 
+## Release Version Guard (`scripts/check_version.py`)
+
+Every artifact is named after `pyproject.toml` while the release is named after
+the tag, so the two disagreeing publishes a release full of artifacts for a
+different version. The two are set by hand and only convention puts them in the
+same commit.
+
+- Its own `check-version` job, which `build` and `build-executables` both
+  `needs:`, so a mismatch is answered in seconds rather than after six
+  PyInstaller runs, and nothing is built or signed in the meantime
+- Compares with `canonical_version()` imported from `smoke.py`, so the two ends
+  of the pipeline cannot drift apart on what counts as the same version: tag
+  `v0.3.0-rc.1` and the `0.3.0rc1` hatchling builds are equal, `0.3.0.dev0` is
+  not
+- Also refuses a version containing `dev` outright. Equality alone would pass a
+  `v0.3.0-dev.0` tag over a `0.3.0.dev0` `pyproject.toml`, which is
+  self-consistent and still means the tag was pushed before the release bump
+- The smoke tests check it again from the other end, with
+  `--expect-version "${GITHUB_REF_NAME#v}"`, against the version the built
+  artifact reports at runtime -- that one catches a binary built from the wrong
+  revision, which a source-level comparison cannot see
+- `tests/test_check_version.py` covers both directions, including the phabfive
+  case and the final-tag-over-an-rc-version case
+
+## Release Smoke Test (`scripts/smoke.py`)
+
+Ported from phabfive, where it exists because v0.10.0-rc.1 shipped six standalone
+executables that could not start at all and every release job still reported
+success: nothing in the pipeline ran what it had just built.
+
+- One script for every artifact, so the checks cannot drift apart:
+  `--executable` for each one-file build, `--venv` for a wheel or sdist
+  installed into a clean venv. `uv run tox -e smoke` is the local form
+- Imports nothing outside the standard library. It runs on a bare CI runner
+  before anything has been installed for it, so it cannot use pytest
+- Runs in `build-executables` **before** the cosign step, so a broken build is
+  never signed, and in `verify-wheel` across three operating systems and Python
+  3.11 and 3.14, with the sdist covered on one cell. `github-release` names
+  both as gates
+- `verify-wheel` installs with plain `pip`, never `uv`: uv would apply `uv.lock`
+  and the `exclude-newer` window, and resolve nothing the way a user does. An
+  undeclared or wrongly floored dependency is invisible under the lock file
+- Each check gets a fresh `HOME` and runs with the cwd inside it, so a template
+  installed on the machine cannot satisfy a check the artifact should have
+  failed
+- `--skill` is the check that earns its place: SKILL.md is data, not a module,
+  so it depends on `--collect-data weav` in the PyInstaller line and on
+  hatchling taking the whole `weav/` tree into the wheel. Building without
+  `--collect-data weav` was tried, and the binary passes every other check here
+- `check_completion()` derives the completion variable from the `Usage:` line
+  rather than hardcoding `_WEAV_COMPLETE`, because the release renames every
+  executable to `weav-<os>-<arch>` first, and follows typer's rule rather than
+  click 8.2's -- they disagree on exactly one asset, the Windows `.exe`
+- `scripts/**/*.py` is exempt from `ANN` and `S603` in `pyproject.toml`; the
+  script's job is running subprocesses, and it is release tooling, not library
+  code
+
 ## Release Workflow
 
 Releases are triggered by pushing a git tag matching `v*`:
@@ -219,3 +277,38 @@ git push origin v0.1.0
   - `weav-macos-amd64`, `weav-macos-arm64`
   - `weav-windows-amd64.exe`, `weav-windows-arm64.exe`
 - Sigstore signatures (`.sigstore.json`) for all executables except Windows ARM64
+
+**Release candidates.** A tag whose name contains `-rc` builds, signs and uploads
+exactly what a final tag does; the only difference is that the GitHub Release is
+marked as a prerelease, so it stays off the repository's "Latest" badge and out
+of the `/releases/latest` redirect that install instructions follow. phabfive's
+RC tags additionally skip PyPI and the floating `X.Y`/`latest` image tags; weav
+publishes to neither, so the prerelease flag is the entire difference here. What
+an RC buys is the same thing it buys there: a full rehearsal of the pipeline on
+real runners -- six PyInstaller builds, six cosign signings, the release
+assembly -- without moving what `weav` means to anyone tracking the latest
+release.
+
+The tag spelling is load-bearing. The workflow matches the literal string `-rc`,
+so `v0.3.0rc1` -- the canonical PEP 440 form -- would go out as a **final**
+release. Tag `v0.3.0-rc.1`.
+
+`pyproject.toml` keeps the canonical spelling instead, `0.3.0rc1`, which is what
+hatchling normalises to and therefore what the wheel is named. Set it in the same
+commit as the tag. phabfive tagged `v0.10.0-rc.1` while its `pyproject.toml`
+still read `0.10.0-dev.0` and the release carried artifacts named after the dev
+version; nothing in phabfive's pipeline notices that. weav's does, twice over --
+see below.
+
+```bash
+# pyproject.toml: version = "0.3.0rc1"
+# CHANGELOG.md:   retitle "# Unreleased" to the release being rehearsed
+git commit -am "Release v0.3.0-rc.1"
+git push origin main
+git tag -a v0.3.0-rc.1 -m "Release v0.3.0-rc.1"
+git push origin v0.3.0-rc.1
+```
+
+The final tag is the same sequence with `version = "0.3.0"` and `v0.3.0`.
+Afterwards bump `pyproject.toml` to `0.4.0.dev0`, so a working tree never claims
+to be a released version.
