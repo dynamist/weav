@@ -31,6 +31,9 @@ ONLY_MARKER = b"---\n"
 FOUR_DASHES_OPEN = b"----\nstatus: Rolling\n---\n# Manifesto\n"
 FOUR_DASHES_BODY = b"---\nstatus: active\n---\n# Doc\n\n----\n\nTail.\n"
 TRAILING_SPACE_CLOSE = b"---\nstatus: active\n--- \n# Doc\n"
+INDENTED_OPENER = b"  ---\n\n# Title\n\n---\n\nBody\n"
+COMMENTS_ONLY = b"---\n# just a comment\n---\nBody\n"
+COMMENT_AND_KEYS = b"---\n# a comment\na: 1\n---\nBody\n"
 
 ROUND_TRIP_CASES = [
     "WITH_MARKER",
@@ -48,6 +51,9 @@ ROUND_TRIP_CASES = [
     "FOUR_DASHES_OPEN",
     "FOUR_DASHES_BODY",
     "TRAILING_SPACE_CLOSE",
+    "INDENTED_OPENER",
+    "COMMENTS_ONLY",
+    "COMMENT_AND_KEYS",
 ]
 
 
@@ -280,3 +286,86 @@ def test_upsert_is_idempotent(doc, name):
     second.patch(upsert={"origin": "deadbeef"})
     assert second.write(path) is False
     assert path.read_bytes() == once
+
+
+def test_indented_marker_does_not_open_a_block(doc):
+    """An indented `  ---` is a thematic break, not an opening delimiter.
+
+    It is matched with rstrip like the closing scan, so it can never open a
+    block that nothing could close -- which would swallow the body.
+    """
+    path = doc(INDENTED_OPENER)
+    document = FrontmatterDocument.from_file(path)
+
+    assert document.has_block is False
+    assert "# Title" in document.content
+    assert "Body" in document.content
+
+
+def test_comment_only_frontmatter_is_preserved(doc):
+    """A block of only comments has no keys to hang them on, but must survive."""
+    path = doc(COMMENTS_ONLY)
+    document = FrontmatterDocument.from_file(path)
+
+    assert document.has_block is True
+    assert "# just a comment" in document.dump_frontmatter()
+
+
+def test_comments_survive_alongside_keys(doc):
+    """Round-trip mode must keep comments attached to a populated block."""
+    path = doc(COMMENT_AND_KEYS)
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"b": "2"})
+    document.write(path)
+
+    text = path.read_text()
+    assert "# a comment" in text
+    # Quoted because CLI values are strings; "2" must not become an int.
+    assert "b: '2'" in text
+
+
+def test_write_preserves_file_mode(doc):
+    """The atomic swap must not reset permissions to the temp file's."""
+    import stat
+
+    path = doc(WITH_MARKER)
+    path.chmod(0o640)
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"origin": "abc"})
+    document.write(path)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+def test_write_leaves_no_temporary_file(doc):
+    """The temp file used for the atomic swap must not survive."""
+    path = doc(WITH_MARKER)
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"origin": "abc"})
+    document.write(path)
+
+    assert list(path.parent.iterdir()) == [path]
+
+
+def test_patch_reports_deleted_sorted(doc):
+    """Deleted keys are reported sorted, like inserted and updated."""
+    path = doc(WITH_MARKER)
+    document = FrontmatterDocument.from_file(path)
+    result = document.patch(delete=["status", "docid"])
+    assert result["deleted"] == ["docid", "status"]
+
+
+def test_write_replaces_rather_than_truncates(doc):
+    """The swap must be atomic, not a truncate-in-place.
+
+    Asserted via the inode: `Path.write_bytes` would reuse it, which would mean
+    a crash mid-write could leave a truncated file with the original gone.
+    """
+    path = doc(WITH_MARKER)
+    before = path.stat().st_ino
+
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"origin": "abc"})
+    assert document.write(path) is True
+
+    assert path.stat().st_ino != before

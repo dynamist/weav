@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,7 @@ from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import YAMLError
 
 # YAML spec: `---` ends the directives section, `...` ends the document.
+BOM = "\ufeff"
 EOD_MARKER = "---"
 EOF_MARKER = "..."
 
@@ -43,6 +46,7 @@ class FrontmatterDocument:
         self._init_yaml()
         self.bom = False
         self.newline = "\n"
+        self._raw_block: str | None = None
         self.lines = text.split("\n")
         self.parse()
 
@@ -61,7 +65,8 @@ class FrontmatterDocument:
 
         doc = cls.__new__(cls)
         doc._init_yaml()
-        doc.bom = raw.startswith("﻿")
+        doc._raw_block = None
+        doc.bom = raw.startswith(BOM)
         if doc.bom:
             raw = raw[1:]
         doc.newline = "\r\n" if "\r\n" in raw else "\n"
@@ -72,7 +77,10 @@ class FrontmatterDocument:
     def parse(self) -> None:
         """Split :attr:`lines` into :attr:`frontmatter` and :attr:`content`."""
         lines = self.lines
-        leading = bool(lines) and lines[0].strip() == self.eod_marker
+        # rstrip, not strip: an indented `  ---` is a Markdown thematic
+        # break. Matching it here would open a block that the closer scan
+        # (also rstrip) could never close, swallowing the body.
+        leading = bool(lines) and lines[0].rstrip() == self.eod_marker
         start = 1 if leading else 0
 
         end = None
@@ -114,6 +122,9 @@ class FrontmatterDocument:
         self.frontmatter = data
         self.content = "\n".join(lines[end + 1 :])
         self.has_block = True
+        # Retained so an unmodified block round trips exactly, including a
+        # block that is only comments and therefore has no keys to hang them on.
+        self._raw_block = "\n".join(lines[start:end])
         self.open_marker = lines[0] if leading else self.eod_marker
         self.close_marker = close
 
@@ -122,6 +133,7 @@ class FrontmatterDocument:
         self.frontmatter = CommentedMap()
         self.content = "\n".join(self.lines)
         self.has_block = False
+        self._raw_block = None
         self.open_marker = self.eod_marker
         self.close_marker = self.eod_marker
 
@@ -133,21 +145,27 @@ class FrontmatterDocument:
         """Insert or update keys, then delete keys, reporting what changed."""
         result: dict[str, list[str]] = {"inserted": [], "updated": [], "deleted": []}
 
+        if upsert or delete:
+            # The block is about to change, so the verbatim copy is stale.
+            self._raw_block = None
+
         if upsert:
             # Sorted so the reported order is stable between runs.
             result["inserted"] = sorted(upsert.keys() - self.frontmatter.keys())
             result["updated"] = sorted(upsert.keys() & self.frontmatter.keys())
 
-            merged = CommentedMap()
-            merged.update(self.frontmatter)
-            merged.update(upsert)
-            self.frontmatter = merged
+            # Update in place rather than rebuilding the map: a fresh
+            # CommentedMap copies the items but not ruamel's .ca metadata, so
+            # rebuilding would silently drop the block's comments. Existing
+            # keys keep their position and new ones append either way.
+            self.frontmatter.update(upsert)
 
         if delete:
             for key in delete:
                 if key in self.frontmatter:
                     result["deleted"].append(key)
                     del self.frontmatter[key]
+            result["deleted"].sort()
 
         return result
 
@@ -155,6 +173,10 @@ class FrontmatterDocument:
         """Return the frontmatter block including both delimiters, or ""."""
         if not (self.frontmatter or self.has_block):
             return ""
+
+        if self._raw_block is not None:
+            body = f"{self._raw_block}\n" if self._raw_block else ""
+            return f"{self.open_marker}\n{body}{self.close_marker}\n"
 
         buf = io.StringIO()
         if self.frontmatter:
@@ -172,14 +194,28 @@ class FrontmatterDocument:
     def write(self, path: Path) -> bool:
         """Write the document to `path`, returning whether the bytes changed.
 
-        The original BOM and line ending are restored. Bytes are written in one
-        call so a failure cannot leave a half-written file behind.
+        The original BOM and line ending are restored. The content is written
+        to a temporary file in the same directory and moved into place with
+        :meth:`Path.replace`, so a reader never sees a partial document and a
+        crash mid-write cannot destroy the original.
         """
         text = self.dumps().replace("\n", self.newline)
-        payload = (("﻿" if self.bom else "") + text).encode("utf-8")
+        payload = (BOM if self.bom else "") + text
 
-        if path.exists() and path.read_bytes() == payload:
+        if path.exists() and path.read_bytes() == payload.encode("utf-8"):
             return False
 
-        path.write_bytes(payload)
+        # delete=False because the file is moved into place, not discarded.
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as handle:
+            temp = Path(handle.name)
+            handle.write(payload.encode("utf-8"))
+        try:
+            if path.exists():
+                shutil.copymode(path, temp)
+            temp.replace(path)
+        except OSError:
+            temp.unlink(missing_ok=True)
+            raise
         return True
