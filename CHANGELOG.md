@@ -26,7 +26,11 @@
   stdout. Pass `--stdout` for the old behaviour.
 * **`weav frontmatter` preserves comments, permissions and separators in values** - a comment-only frontmatter block, a block comment alongside keys, and the file mode all survive an edit; `--upsert "title=Hello, World"` no longer crashes; and an indented `  ---` is treated as a thematic break rather than an opening delimiter. Writes go through a temporary file and an atomic rename, so a crash mid-write cannot destroy the original; a symlink is followed rather than replaced, so the canonical file is the one updated.
 * **`weav render` command** - The template renderer is now an explicit
-  subcommand, alongside `weav frontmatter`.
+  subcommand, alongside `weav frontmatter`. The renderer itself is not new: it
+  is what weav has done since 0.1.0, and it began as Dynamist's proprietary
+  `dynatron-template` tool, open sourced and relicensed to Apache-2.0 by the
+  copyright holder. `weav/utils.py` carries ports of that tool's `deep_merge`,
+  `load_and_wrap` and `mangle_keyval` helpers.
 * **`--exec` / `-x` command data sources** - Run a command and use its stdout
   as template data: `weav render report.j2 --exec tasks:yaml='phabfive --format=yaml
   maniphest search'`. Repeatable, so several query results can feed one
