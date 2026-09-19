@@ -46,13 +46,17 @@ def test_prints_the_skill():
     assert "name: weav" in result.stdout
 
 
-def test_output_is_the_file_verbatim():
-    """The output is meant to be redirected straight into a SKILL.md."""
-    result = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", _ENTRYPOINT, "--skill"],
+def _run(*args):
+    return subprocess.run(  # noqa: S603
+        [sys.executable, "-c", _ENTRYPOINT, *args],
         capture_output=True,
         text=True,
     )
+
+
+def test_output_is_the_file_verbatim():
+    """The output is meant to be redirected straight into a SKILL.md."""
+    result = _run("--skill")
 
     assert result.returncode == 0
     assert result.stdout == _skill_text()
@@ -68,9 +72,15 @@ def test_beats_the_bare_invocation_help():
 
 
 def test_help_offers_the_flag():
-    result = runner.invoke(app, ["--help"])
+    """Out of process, like the footer tests, and for a second reason.
 
-    assert "--skill" in result.stdout
+    Under CliRunner typer renders help with rich, and when rich has colour --
+    which it does on CI, where FORCE_COLOR is set -- it styles the leading dash
+    separately, so the option arrives as "-\x1b[0m\x1b[1;36m-skill" and no
+    substring assertion can see it. The plain click help is also the one the
+    installed console script actually prints.
+    """
+    assert "--skill" in _run("--help").stdout
 
 
 def _documented_invocations():
