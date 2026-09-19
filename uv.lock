@@ -700,7 +700,7 @@ wheels = [
 
 [[package]]
 name = "weav"
-version = "0.3.0rc2"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
