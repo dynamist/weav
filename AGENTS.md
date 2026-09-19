@@ -313,14 +313,20 @@ version; nothing in phabfive's pipeline notices that. weav's does, twice over --
 see below.
 
 ```bash
-# pyproject.toml: version = "0.3.0rc1"
-# CHANGELOG.md:   retitle "# Unreleased" to the release being rehearsed
+# pyproject.toml: version = "0.3.0rc1"   (CHANGELOG.md is not touched yet)
 git commit -am "Release v0.3.0-rc.1"
 git push origin main
 git tag -a v0.3.0-rc.1 -m "Release v0.3.0-rc.1"
 git push origin v0.3.0-rc.1
 ```
 
-The final tag is the same sequence with `version = "0.3.0"` and `v0.3.0`.
+`CHANGELOG.md` keeps its `# Unreleased` heading through every candidate and is
+retitled `# 0.3.0 (DATE)` only at the final tag. A candidate is a rehearsal, not
+a release, and dating the section for one would put a date on the changelog that
+no release carries. The GitHub Release notes are generated from the commits
+either way, so nothing reads the changelog in between.
+
+The final tag is the same sequence with `version = "0.3.0"`, the changelog
+heading retitled, and `v0.3.0`.
 Afterwards bump `pyproject.toml` to `0.4.0.dev0`, so a working tree never claims
 to be a released version.
