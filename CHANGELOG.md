@@ -95,6 +95,41 @@
   mapping's keys landing at the top level of the context must either drop the
   `KEY=` prefix or access values as `{{ KEY.field }}`.
 
+## Other Notes
+
+* **Release candidate tags** - A tag containing `-rc`, such as `v0.3.0-rc.1`,
+  now builds, signs and uploads everything a final tag does, but its GitHub
+  Release is marked as a prerelease and so stays out of `/releases/latest`.
+  Ported from phabfive, where the same flag lets a release be rehearsed end to
+  end on real runners before it becomes the one people install.
+
+* **Every release artifact is now run before it ships** - `scripts/smoke.py`
+  executes each of the six standalone executables before it is signed, and the
+  wheel and sdist after installing them into a clean venv with plain `pip` on
+  three operating systems and two Python versions. The GitHub Release depends
+  on all of it passing, so a build that cannot start stops the release instead
+  of being published. Run the same checks locally with `uv run tox -e smoke`.
+
+  Also ported from phabfive, where it was written after v0.10.0-rc.1 shipped
+  six executables that could not start at all while every job reported success,
+  because nothing in the pipeline ever ran what it built. The checks that matter
+  most for weav are the ones no unit test can reach: `weav --skill` reads
+  SKILL.md out of the bundle, which depends on `--collect-data weav` surviving
+  in the PyInstaller line, and `--version` reads the distribution metadata
+  before typer parses an argument.
+
+* **A tag that disagrees with `pyproject.toml` no longer releases** -
+  `scripts/check_version.py` runs before anything is built and refuses a tag
+  that names a different version than the one that would be built, or a version
+  that is still a `.dev` one. The smoke tests check it again from the other end,
+  against the version the built artifact reports at runtime.
+
+  phabfive tagged `v0.10.0-rc.1` over a `pyproject.toml` that still read
+  `0.10.0-dev.0`, and published a release candidate whose wheel, sdist and six
+  executables were all named for the dev version. Nothing in its pipeline
+  noticed, because every artifact is named after `pyproject.toml` while the
+  release is named after the tag.
+
 
 # 0.2.0 (2026-05-05)
 

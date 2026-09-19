@@ -59,6 +59,12 @@ ignore = []
   "S101", # Allow assert statements in tests
   "ANN",  # Don't require type annotations in tests
 ]
+# scripts/smoke.py runs the built CLI as a subprocess; that is its entire job,
+# and it is release tooling rather than library code.
+"scripts/**/*.py" = [
+  "ANN",  # Don't require type annotations in release tooling
+  "S603", # subprocess calls are the point of the smoke test
+]
 
 [tool.ruff.format]
 quote-style = "double"

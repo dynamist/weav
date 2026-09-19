@@ -11,8 +11,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Every artifact is named after pyproject.toml while the release is named
+  # after the tag, so a disagreement publishes a release full of artifacts for
+  # a different version -- which is how phabfive's v0.10.0-rc.1 went out over a
+  # pyproject.toml that still read 0.10.0-dev.0. Its own job, gating the builds,
+  # so the answer arrives in seconds rather than after six PyInstaller runs.
+  # The smoke tests check the same thing again from the other end, against the
+  # version the built artifact reports at runtime.
+  check-version:
+    name: Check the tag matches pyproject.toml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Compare the tag with the declared version
+        run: python3 scripts/check_version.py "$GITHUB_REF_NAME"
+
   build:
     name: Build distribution
+    needs: check-version
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -37,6 +57,7 @@ jobs:
 
   build-executables:
     name: Build ${{ matrix.os }} ${{ matrix.arch }} executable
+    needs: check-version
     runs-on: ${{ matrix.runner }}
     permissions:
       id-token: write
@@ -111,6 +132,26 @@ jobs:
         shell: bash
         run: mv dist/${{ matrix.artifact_name }} dist/${{ matrix.asset_name }}
 
+      # Nothing else in this workflow runs what it builds, and a frozen weav
+      # can fail in ways the test suite cannot see: --skill reads SKILL.md out
+      # of the bundle, and weav/__init__.py reads its own version out of the
+      # distribution metadata before typer parses an argument. Each runner is
+      # native for its arch, so this tests the binary on the platform it
+      # targets. It runs before signing, so a broken build is never signed.
+      #
+      # --expect-version is the tag with its leading "v" removed; smoke.py
+      # compares versions with the separators dropped, so the tag v0.3.0-rc.1
+      # and the "0.3.0rc1" the metadata reports match. check-version already
+      # compared the tag with pyproject.toml; this compares it with what the
+      # artifact reports at runtime, which is what catches a binary built from
+      # the wrong revision rather than from the wrong version string.
+      - name: Smoke test executable
+        shell: bash
+        run: |
+          python scripts/smoke.py \
+            --executable dist/${{ matrix.asset_name }} \
+            --expect-version "${GITHUB_REF_NAME#v}"
+
       - name: Sign executable with Sigstore
         if: ${{ !matrix.skip_signing }}
         shell: bash
@@ -135,10 +176,74 @@ jobs:
           name: ${{ matrix.asset_name }}
           path: dist/${{ matrix.asset_name }}
 
+  verify-wheel:
+    name: Verify ${{ matrix.package }} on ${{ matrix.os }} py${{ matrix.python-version }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.14"]
+        package: [wheel]
+        include:
+          # An sdist that will not build breaks pip install for anyone without
+          # a matching wheel, and nothing else here would notice.
+          - os: ubuntu-latest
+            python-version: "3.14"
+            package: sdist
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      # Plain pip on purpose. uv would apply uv.lock and the exclude-newer
+      # window from pyproject.toml; pip resolves from the distribution's own
+      # metadata, which is what someone installing the released wheel gets --
+      # and the only way an undeclared or wrongly floored dependency shows up.
+      - name: Install the built distribution into a clean venv
+        shell: bash
+        run: |
+          if [ "${{ matrix.package }}" = "sdist" ]; then
+            artifact=$(ls dist/*.tar.gz)
+          else
+            artifact=$(ls dist/*.whl)
+          fi
+          echo "installing $artifact"
+          python -m venv fresh
+          if [ -d fresh/Scripts ]; then
+            fresh/Scripts/python -m pip install --upgrade pip
+            fresh/Scripts/pip install --no-cache-dir "$artifact"
+          else
+            fresh/bin/python -m pip install --upgrade pip
+            fresh/bin/pip install --no-cache-dir "$artifact"
+          fi
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          python scripts/smoke.py \
+            --venv fresh \
+            --expect-version "${GITHUB_REF_NAME#v}"
+
   github-release:
     name: Create GitHub Release
-    needs: [build, build-executables]
-    if: ${{ always() && needs.build.result == 'success' && needs.build-executables.result == 'success' }}
+    needs: [check-version, build, build-executables, verify-wheel]
+    # always() means an unlisted job is not a gate at all -- every job this
+    # release depends on has to be named here explicitly.
+    if: ${{ always() && needs.check-version.result == 'success' && needs.build.result == 'success' && needs.build-executables.result == 'success' && needs.verify-wheel.result == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: release
@@ -164,9 +269,15 @@ jobs:
           done
           ls -la release-assets/
 
+      # A tag carrying "-rc" ships everything a real release ships, but lands
+      # as a prerelease: it stays off the repository's "Latest" badge and out
+      # of the /releases/latest redirect that install scripts follow. Matching
+      # is on the literal "-rc", so the tag has to be v0.3.0-rc.1 and not the
+      # canonical PEP 440 spelling v0.3.0rc1, which would go out as final.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
           files: |
             release-assets/*
