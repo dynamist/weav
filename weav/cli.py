@@ -228,10 +228,13 @@ def frontmatter(
         err_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1) from exc
 
-    result = document.patch(
-        upsert=mangle_keyval(upsert),
-        delete=mangle_commas(delete),
-    )
+    try:
+        pairs = mangle_keyval(upsert)
+    except ValueError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(2) from exc
+
+    result = document.patch(upsert=pairs, delete=mangle_commas(delete))
 
     if to_stdout:
         _echo_document(document, result, verbose=verbose)

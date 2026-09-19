@@ -2,6 +2,7 @@
 
 import io
 
+import pytest
 from weav.utils import deep_merge, load_and_wrap, mangle_commas, mangle_keyval
 
 
@@ -111,3 +112,19 @@ def test_mangle_commas_multiple_args():
     """Test comma splitting with multiple arguments."""
     result = mangle_commas(["a,b", "c,d"])
     assert result == ["a", "b", "c", "d"]
+
+
+def test_mangle_keyval_allows_a_separator_inside_a_value():
+    """A comma in a value must not be read as a pair boundary."""
+    assert mangle_keyval(["title=Hello, World"]) == {"title": "Hello, World"}
+
+
+def test_mangle_keyval_still_splits_genuine_pairs():
+    """Comma-joined KEY=VAL pairs keep working."""
+    assert mangle_keyval(["a=1,b=2"]) == {"a": "1", "b": "2"}
+
+
+def test_mangle_keyval_rejects_a_pair_without_a_value():
+    """A malformed pair is an error, not a silently empty value."""
+    with pytest.raises(ValueError, match="expected KEY=VALUE"):
+        mangle_keyval(["typo"])

@@ -74,14 +74,33 @@ def mangle_keyval(keys: list[str], sep: str | None = ",") -> dict[str, str]:
 
         >>> mangle_keyval(["key=a,b,c"], sep=None)
         {'key': 'a,b,c'}
+
+        A value may contain the separator. Splitting only happens when every
+        resulting piece is itself a KEY=VALUE pair, so a prose value survives:
+
+        >>> mangle_keyval(["title=Hello, World"])
+        {'title': 'Hello, World'}
     """
     result: dict[str, str] = {}
     for keyvals in keys:
-        pairs = keyvals.split(sep) if sep else [keyvals]
-        for pair in pairs:
-            key, value = pair.split("=", 1)
+        for pair in _split_pairs(keyvals, sep):
+            key, found, value = pair.partition("=")
+            if not found:
+                raise ValueError(f"expected KEY=VALUE, got {pair!r}")
             result[key] = value
     return result
+
+
+def _split_pairs(keyvals: str, sep: str | None) -> list[str]:
+    """Split a KEY=VAL[,KEY=VAL...] string, tolerating separators in values."""
+    if not sep:
+        return [keyvals]
+    pairs = keyvals.split(sep)
+    # "title=Hello, World" splits into a piece with no "=", which means the
+    # separator belonged to the value rather than joining two pairs.
+    if any("=" not in pair for pair in pairs):
+        return [keyvals]
+    return pairs
 
 
 def mangle_commas(keys: list[str]) -> list[str]:

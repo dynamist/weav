@@ -20,6 +20,7 @@
 
   Note weav edits **in place** by default, where the original only ever wrote to
   stdout. Pass `--stdout` for the old behaviour.
+* **`weav frontmatter` preserves comments, permissions and separators in values** - a comment-only frontmatter block, a block comment alongside keys, and the file mode all survive an edit; `--upsert "title=Hello, World"` no longer crashes; and an indented `  ---` is treated as a thematic break rather than an opening delimiter. Writes go through a temporary file and an atomic rename, so a crash mid-write cannot destroy the original.
 * **`weav render` command** - The template renderer is now an explicit
   subcommand, alongside `weav frontmatter`.
 * **`--exec` / `-x` command data sources** - Run a command and use its stdout
