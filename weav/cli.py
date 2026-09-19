@@ -23,6 +23,21 @@ console = Console()
 err_console = Console(stderr=True)
 
 
+def _error(message: object) -> None:
+    """Print an error to stderr without interpreting it as rich markup.
+
+    Error text routinely contains a filesystem path, and a path with square
+    brackets would otherwise be silently eaten as a markup tag.
+    """
+    err_console.print(
+        f"Error: {message}",
+        style="red",
+        markup=False,
+        highlight=False,
+        soft_wrap=True,
+    )
+
+
 class WeavGroup(TyperGroup):
     """Dispatch an unrecognised first argument to `render`.
 
@@ -51,7 +66,9 @@ class WeavGroup(TyperGroup):
                     f"template. Use 'weav render {name}'. This fallback will be "
                     "removed in weav 1.0.",
                     style="yellow",
+                    markup=False,
                     highlight=False,
+                    soft_wrap=True,
                 )
             # Return the full args: args[0] is the template, not a command name.
             return "render", self.get_command(ctx, "render"), args
@@ -159,10 +176,10 @@ def render(
         )
         console.print(result, highlight=False, soft_wrap=True, markup=False)
     except (TemplateError, DataSourceError) as e:
-        err_console.print(f"[red]Error:[/red] {e}")
+        _error(e)
         raise typer.Exit(1) from e
     except FileNotFoundError as e:
-        err_console.print(f"[red]Error:[/red] File not found: {e.filename}")
+        _error(f"File not found: {e.filename}")
         raise typer.Exit(1) from e
 
 
@@ -225,13 +242,13 @@ def frontmatter(
     try:
         document = FrontmatterDocument.from_file(file)
     except FrontmatterError as exc:
-        err_console.print(f"[red]Error:[/red] {exc}")
+        _error(exc)
         raise typer.Exit(1) from exc
 
     try:
         pairs = mangle_keyval(upsert)
     except ValueError as exc:
-        err_console.print(f"[red]Error:[/red] {exc}")
+        _error(exc)
         raise typer.Exit(2) from exc
 
     result = document.patch(upsert=pairs, delete=mangle_commas(delete))

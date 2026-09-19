@@ -299,3 +299,31 @@ def test_help_lists_both_commands():
     assert result.exit_code == 0
     assert "render" in result.stdout
     assert "frontmatter" in result.stdout
+
+
+def test_shim_warning_preserves_brackets_in_the_path(tmp_path):
+    """Rich must not eat `[...]` in a template path, nor hard-wrap the advice.
+
+    The warning tells the user what to run instead, so a mangled path makes it
+    point at a file that does not exist. Regression guard for the v0.1.1
+    "Rich stripping bracket content" class of bug.
+    """
+    template = tmp_path / "notes[draft].j2"
+    template.write_text("Hello {{ name }}!")
+
+    result = runner.invoke(app, [str(template), "--keyval", "name=World"])
+
+    assert result.exit_code == 0
+    assert "Hello World!" in result.stdout
+    assert "notes[draft].j2" in result.stderr
+    # Unwrapped, so the phrase survives on long temp paths (macOS /private/var).
+    assert "will be removed in weav 1.0" in result.stderr
+
+
+def test_error_messages_preserve_brackets_in_the_path(doc):
+    """An error naming a bracketed path must not have it stripped as markup."""
+    path = doc(b"---\ndocid: X\nmalformed\n---\n# Doc\n", name="bad[v2].md")
+    result = runner.invoke(app, ["frontmatter", str(path), "--upsert", "a=b"])
+
+    assert result.exit_code == 1
+    assert "bad[v2].md" in result.stderr or "invalid YAML frontmatter" in result.stderr

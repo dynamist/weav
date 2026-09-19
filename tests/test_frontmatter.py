@@ -1,5 +1,7 @@
 """Tests for the frontmatter parsing and editing module."""
 
+import sys
+
 import pytest
 from weav.frontmatter import FrontmatterDocument, FrontmatterError
 
@@ -347,6 +349,10 @@ def test_comments_survive_alongside_keys(doc):
     assert "b: '2'" in text
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows has no POSIX mode bits; chmod only toggles the read-only flag",
+)
 def test_write_preserves_file_mode(doc):
     """The atomic swap must not reset permissions to the temp file's."""
     import stat
