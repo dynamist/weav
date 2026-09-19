@@ -7,9 +7,11 @@
   `weav frontmatter contract.md --upsert origin=$(git rev-parse HEAD)`. Comments,
   quoting and block scalars survive the edit, as do a byte order mark, CRLF line
   endings and the exact delimiter lines; a document whose content did not change
-  is not rewritten at all. Ported from Dynamist's proprietary
-  `dynatron-frontmatter` tool and relicensed to Apache-2.0 by the copyright
-  holder.
+  is not rewritten at all. Ported from Dynamist's proprietary frontmatter
+  tooling and relicensed to Apache-2.0 by the copyright holder: the document
+  model from `dynatron-lib-frontmatter`, the command surface from
+  `dynatron-cli-frontmatter`, and the `--upsert` and `--delete` argument
+  parsing from `dynatron-lib-utils`.
 
   The port fixes a defect in the original that could destroy documents: it split
   on the *last* `---` anywhere in the file, so a thematic break in the body was
@@ -28,9 +30,10 @@
 * **`weav render` command** - The template renderer is now an explicit
   subcommand, alongside `weav frontmatter`. The renderer itself is not new: it
   is what weav has done since 0.1.0, and it began as Dynamist's proprietary
-  `dynatron-template` tool, open sourced and relicensed to Apache-2.0 by the
-  copyright holder. `weav/utils.py` carries ports of that tool's `deep_merge`,
-  `load_and_wrap` and `mangle_keyval` helpers.
+  `dynatron-cli-template`, open sourced and relicensed to Apache-2.0 by the
+  copyright holder. `weav/utils.py` carries ports of the `deep_merge`,
+  `load_and_wrap` and `mangle_keyval` helpers it used, which came from
+  `dynatron-lib-utils` rather than from the tool itself.
 * **`--exec` / `-x` command data sources** - Run a command and use its stdout
   as template data: `weav render report.j2 --exec tasks:yaml='phabfive --format=yaml
   maniphest search'`. Repeatable, so several query results can feed one
