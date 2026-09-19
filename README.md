@@ -15,6 +15,7 @@ A markup template compiler with data support.
 - Run commands and use their output as data (`--exec`)
 - Explicit per-source format override (`KEY:FORMAT=SOURCE`)
 - Edit YAML frontmatter in Markdown and reST documents (`weav frontmatter`)
+- Agent skill for AI coding agents (`weav --skill`)
 
 ## Installation
 
@@ -195,6 +196,20 @@ You can also specify a direct file path to a template.
 | `-D, --delete` | Delete `KEY`. Comma-separated keys allowed. Can specify multiple times. |
 | `--stdout` | Write the result to stdout instead of editing the file in place. |
 | `-v, --verbose` | Report inserted, updated and deleted keys on stderr. |
+
+## Agent skill
+
+`weav --skill` prints a skill file describing the CLI for AI coding agents. It
+goes to stdout verbatim, with nothing on stderr, so it can be redirected
+straight into place:
+
+```bash
+mkdir -p ~/.claude/skills/weav
+weav --skill > ~/.claude/skills/weav/SKILL.md
+```
+
+Every help page ends with a short resources block pointing at the flag, so an
+agent that only reads `--help` still finds it.
 
 ## Editing frontmatter
 
