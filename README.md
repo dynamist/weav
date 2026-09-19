@@ -212,9 +212,8 @@ weav frontmatter doc.md --delete status,docid
 weav frontmatter doc.md --upsert lorem=ipsum --stdout
 ```
 
-**The file is edited in place by default.** This differs from the
-`dynatron-frontmatter` tool weav was ported from, which only ever wrote to
-stdout; pass `--stdout` for that behaviour.
+**The file is edited in place by default.** Pass `--stdout` to print the
+result and leave the file untouched.
 
 A frontmatter block is recognised only when the document opens with a `---`
 line, and the next `---` or `...` line closes it. A `---` used as a thematic
