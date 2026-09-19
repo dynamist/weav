@@ -228,6 +228,27 @@ same commit.
 - `tests/test_check_version.py` covers both directions, including the phabfive
   case and the final-tag-over-an-rc-version case
 
+## Release Architecture Guard (`scripts/check_arch.py`)
+
+An asset's name comes from the build matrix; its architecture comes from
+whatever machine the runner label resolved to. Nothing tied the two together
+until this, and v0.2.0 published an arm64 binary as `weav-macos-amd64`.
+
+- Reads the ELF, Mach-O or PE header directly rather than shelling out to
+  `file(1)`, which the Windows runners do not have. Stdlib only
+- Runs after the rename and before both the smoke test and cosign, so a
+  mislabelled build is never signed
+- Unrecognised input is an error, not a pass: a universal Mach-O, a 32-bit
+  header or a shell script left behind by a failed build all fail rather than
+  slipping through
+- **The smoke test structurally cannot cover this.** It runs each binary on the
+  machine that built it, where the architecture is native by definition. Only
+  the finished artifact's header tells the truth, which is why
+  `tests/test_check_arch.py` builds headers rather than binaries
+- Ported from phabfive, which wrote it in response to weav's report of the bug.
+  Verified against weav's own releases before landing: it passes all six
+  v0.3.0-rc.1 assets and exits 1 on v0.2.0's `weav-macos-amd64`
+
 ## Release Smoke Test (`scripts/smoke.py`)
 
 Ported from phabfive, where it exists because v0.10.0-rc.1 shipped six standalone

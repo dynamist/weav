@@ -144,6 +144,17 @@ jobs:
         shell: bash
         run: mv dist/${{ matrix.artifact_name }} dist/${{ matrix.asset_name }}
 
+      # The asset name comes from the matrix; the architecture comes from
+      # whatever machine the runner label resolved to. Nothing tied the two
+      # together, and v0.2.0 published an arm64 binary as weav-macos-amd64.
+      # The smoke test structurally cannot catch that -- it runs each binary
+      # on the machine that built it, which is native whatever that machine
+      # is -- so the header is read instead. Before signing, like everything
+      # else here, so a mislabelled build is never signed.
+      - name: Check the executable matches its name
+        shell: bash
+        run: python scripts/check_arch.py --expect ${{ matrix.arch }} dist/${{ matrix.asset_name }}
+
       # Nothing else in this workflow runs what it builds, and a frozen weav
       # can fail in ways the test suite cannot see: --skill reads SKILL.md out
       # of the bundle, and weav/__init__.py reads its own version out of the
