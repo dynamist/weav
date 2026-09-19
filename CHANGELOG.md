@@ -118,6 +118,19 @@
   in the PyInstaller line, and `--version` reads the distribution metadata
   before typer parses an argument.
 
+* **The macOS Intel build is now actually Intel** - `weav-macos-amd64` was
+  built on `macos-14`, which is an arm64 label; every macOS asset of v0.2.0 is
+  an arm64 Mach-O, so the file an Intel Mac downloads fails to start with "Bad
+  CPU type in executable". It is now built on `macos-15-intel`, the x86_64 label
+  GitHub introduced when `macos-13` was retired. The arm64 row moved from the
+  floating `macos-latest` to a pinned `macos-15`, so the minimum macOS version a
+  release binary requires does not rise on its own when GitHub migrates the
+  alias.
+
+  `macos-14` is separately deprecated: jobs using it fail during brownouts from
+  October 5th 2026 and the image is unsupported from November 2nd
+  (actions/runner-images#13518).
+
 * **A tag that disagrees with `pyproject.toml` no longer releases** -
   `scripts/check_version.py` runs before anything is built and refuses a tag
   that names a different version than the one that would be built, or a version

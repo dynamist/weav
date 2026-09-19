@@ -72,9 +72,17 @@ jobs:
             runner: ubuntu-latest
             artifact_name: weav
             asset_name: weav-linux-amd64
+          # macos-14 is an arm64 label -- its x64 form is macos-14-large, a
+          # paid larger runner -- so this row built an arm64 binary and
+          # shipped it as weav-macos-amd64. Every macOS asset of v0.2.0 is
+          # "Mach-O 64-bit arm64 executable", including the one an Intel Mac
+          # would download, where it fails with "Bad CPU type in executable".
+          # macos-15-intel is the label GitHub introduced for x86_64 when
+          # macos-13 was retired (actions/runner-images#13045); it is the last
+          # x86_64 image Actions will offer, and it goes away in August 2027.
           - os: macos
             arch: amd64
-            runner: macos-14
+            runner: macos-15-intel
             artifact_name: weav
             asset_name: weav-macos-amd64
           - os: windows
@@ -88,9 +96,13 @@ jobs:
             runner: ubuntu-24.04-arm
             artifact_name: weav
             asset_name: weav-linux-arm64
+          # Pinned rather than macos-latest, which is macOS 26 today and
+          # something else tomorrow. A release binary should be built on the
+          # oldest OS it is meant to run on, and a floating label silently
+          # raises that floor when GitHub migrates the alias.
           - os: macos
             arch: arm64
-            runner: macos-latest
+            runner: macos-15
             artifact_name: weav
             asset_name: weav-macos-arm64
           - os: windows

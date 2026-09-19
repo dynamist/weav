@@ -278,6 +278,18 @@ git push origin v0.1.0
   - `weav-windows-amd64.exe`, `weav-windows-arm64.exe`
 - Sigstore signatures (`.sigstore.json`) for all executables except Windows ARM64
 
+**Runner labels are pinned and mean what they say.** `macos-14` is an arm64
+label -- the x64 form is `macos-14-large`, a paid larger runner -- so building
+the `amd64` asset there produced an arm64 binary, and every macOS asset of
+v0.2.0 is an arm64 Mach-O. The Intel build uses `macos-15-intel`, the label
+GitHub introduced for x86_64 when `macos-13` was retired; it is the last x86_64
+image Actions will offer and is scheduled to go away in August 2027, after which
+a macOS Intel binary cannot be built here at all. The arm64 build is pinned to
+`macos-15` rather than `macos-latest`, because a release binary should be built
+on the oldest OS it targets and a floating alias raises that floor silently.
+Nothing catches a mislabelled runner by itself: the smoke test runs each binary
+on the runner that built it, which is native either way.
+
 **Release candidates.** A tag whose name contains `-rc` builds, signs and uploads
 exactly what a final tag does; the only difference is that the GitHub Release is
 marked as a prerelease, so it stays off the repository's "Latest" badge and out
