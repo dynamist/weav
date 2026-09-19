@@ -131,6 +131,15 @@
   October 5th 2026 and the image is unsupported from November 2nd
   (actions/runner-images#13518).
 
+* **An executable that does not match its name no longer releases** -
+  `scripts/check_arch.py` reads each built executable's ELF, Mach-O or PE
+  header and refuses one whose architecture is not the one its asset name
+  promises. It runs before signing. The smoke test cannot cover this, because it
+  runs each binary on the machine that built it, where the architecture is
+  native by definition; only the finished artifact shows it. Ported from
+  phabfive, and verified against weav's own releases: it passes all six
+  v0.3.0-rc.1 assets and refuses v0.2.0's `weav-macos-amd64`.
+
 * **A tag that disagrees with `pyproject.toml` no longer releases** -
   `scripts/check_version.py` runs before anything is built and refuses a tag
   that names a different version than the one that would be built, or a version
