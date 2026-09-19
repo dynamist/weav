@@ -74,8 +74,11 @@ gh pr merge --rebase --delete-branch
   and a mis-split would destroy the document:
   1. Anchor on a **leading** `---` and close on the **first** `---`/`...` line
      after it. Never scan for the last one -- a `---` thematic break in the body
-     is not a delimiter. Comparison is exact on the stripped line, so `----`
-     does not match; the raw line is retained so trailing whitespace round trips.
+     is not a delimiter. The opening delimiter is **required**: without it a
+     Markdown setext heading (`Title: subtitle` underlined by `---`) parses as a
+     mapping and would be silently promoted into metadata. Comparison is exact
+     on the rstripped line at both ends, so `----` and an indented `  ---` do
+     not match; the raw lines are retained so whitespace round trips.
   2. The parsed value must be a mapping. Body prose loaded as a scalar or
      sequence is not frontmatter.
   3. A parse error is fatal only when a leading `---` was present. Without one

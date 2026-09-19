@@ -81,7 +81,15 @@ class FrontmatterDocument:
         # break. Matching it here would open a block that the closer scan
         # (also rstrip) could never close, swallowing the body.
         leading = bool(lines) and lines[0].rstrip() == self.eod_marker
-        start = 1 if leading else 0
+        if not leading:
+            # Without an opening delimiter there is no frontmatter. Guessing
+            # would consume a setext h2 -- "Title: subtitle" underlined by
+            # `---` is ordinary Markdown -- and silently promote a heading
+            # into metadata.
+            self._set_content_only()
+            return
+
+        start = 1
 
         end = None
         close = self.eod_marker
@@ -104,14 +112,9 @@ class FrontmatterDocument:
         try:
             data: Any = self.yaml.load(text)
         except YAMLError as exc:
-            # Only fail when the document declared a frontmatter block. Without
-            # a leading marker we are guessing, and guessing must never abort.
-            if leading:
-                raise FrontmatterError(f"invalid YAML frontmatter: {exc}") from exc
-            self._set_content_only()
-            return
+            raise FrontmatterError(f"invalid YAML frontmatter: {exc}") from exc
 
-        if data is None and leading:
+        if data is None:
             data = CommentedMap()
 
         if not isinstance(data, dict):
@@ -125,7 +128,7 @@ class FrontmatterDocument:
         # Retained so an unmodified block round trips exactly, including a
         # block that is only comments and therefore has no keys to hang them on.
         self._raw_block = "\n".join(lines[start:end])
-        self.open_marker = lines[0] if leading else self.eod_marker
+        self.open_marker = lines[0]
         self.close_marker = close
 
     def _set_content_only(self) -> None:

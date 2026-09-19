@@ -16,7 +16,11 @@
   mistaken for the closing delimiter and everything above it was parsed as YAML.
   weav anchors on a leading `---` and closes on the first `---` or `...` line
   after it, treats anything that does not parse as a mapping as body content,
-  and never fails on a document that did not declare a frontmatter block.
+  and never fails on a document that did not declare a frontmatter block. The
+  opening delimiter is required, so a Markdown setext heading such as
+  `Overview: the big picture` underlined by `---` stays a heading instead of
+  being consumed as metadata. A document whose frontmatter is closed but never
+  opened by `---` is therefore body content, and needs a leading `---` added.
 
   Note weav edits **in place** by default, where the original only ever wrote to
   stdout. Pass `--stdout` for the old behaviour.

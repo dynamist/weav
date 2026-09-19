@@ -218,8 +218,14 @@ stdout; pass `--stdout` for that behaviour.
 
 A frontmatter block is recognised only when the document opens with a `---`
 line, and the next `---` or `...` line closes it. A `---` used as a thematic
-break in the body is left alone, and a document with no frontmatter simply gains
-a block. Documents are read and written as UTF-8, and a byte order mark, CRLF
+break in the body is left alone, as is an indented `  ---` or a longer `----`,
+and a document with no frontmatter simply gains a block.
+
+The opening delimiter is required, which means a Markdown setext heading is
+never mistaken for metadata -- `Overview: the big picture` underlined by `---`
+stays a heading. It also means a document whose frontmatter is closed by `---`
+but never opened by one is treated as body content; add a leading `---` to such
+documents. Documents are read and written as UTF-8, and a byte order mark, CRLF
 line endings and the exact delimiter lines all survive a round trip. A document
 whose content did not change is not rewritten at all.
 
