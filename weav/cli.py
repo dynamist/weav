@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from importlib import resources
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -14,6 +15,7 @@ from rich.console import Console
 from typer.core import TyperGroup
 
 from weav import __version__
+from weav.agents import AgentFooterCommand, AgentFooterMixin
 from weav.datasources import DataSourceError
 from weav.frontmatter import FrontmatterDocument, FrontmatterError
 from weav.template import TemplateError, compile_template
@@ -38,7 +40,7 @@ def _error(message: object) -> None:
     )
 
 
-class WeavGroup(TyperGroup):
+class WeavGroup(AgentFooterMixin, TyperGroup):
     """Dispatch an unrecognised first argument to `render`.
 
     Compatibility shim for the pre-subcommand `weav TEMPLATE ...` form.
@@ -79,6 +81,19 @@ def version_callback(value: bool) -> None:
     """Print version and exit."""
     if value:
         console.print(f"weav {__version__}")
+        raise typer.Exit()
+
+
+def skill_callback(value: bool) -> None:
+    """Print the agent skill file and exit.
+
+    Printed verbatim, trailing newline and all, so the output can be redirected
+    straight into a SKILL.md an agent loads. typer.echo rather than the module
+    console: rich would rewrap the Markdown and eat its brackets.
+    """
+    if value:
+        skill = resources.files("weav").joinpath("SKILL.md")
+        typer.echo(skill.read_text(encoding="utf-8"), nl=False)
         raise typer.Exit()
 
 
@@ -316,12 +331,21 @@ def cli(
             is_eager=True,
         ),
     ] = None,
+    skill: Annotated[
+        bool | None,
+        typer.Option(
+            "--skill",
+            help="Print the agent skill file and exit.",
+            callback=skill_callback,
+            is_eager=True,
+        ),
+    ] = None,
 ) -> None:
     """Compile Jinja2 templates and edit YAML frontmatter."""
 
 
-app.command("render")(render)
-app.command("frontmatter")(frontmatter)
+app.command("render", cls=AgentFooterCommand)(render)
+app.command("frontmatter", cls=AgentFooterCommand)(frontmatter)
 
 
 if __name__ == "__main__":

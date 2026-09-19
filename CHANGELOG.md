@@ -2,6 +2,21 @@
 
 ## New Features
 
+* **`weav --skill` agent skill** - Print a skill file describing the CLI for AI
+  coding agents: `weav --skill > ~/.claude/skills/weav/SKILL.md`. The file is
+  shipped as package data and written to stdout verbatim with nothing on stderr,
+  so the redirect is all there is to it. It documents the parts an agent
+  otherwise gets wrong: that only `.json` and `.toml` suffixes pick a parser
+  while everything else is read as YAML, that `--keyval` values are strings and
+  so `count=0` is truthy, that a later source replaces a list rather than
+  extending it, that `--env ''` puts the whole environment into the context, and
+  that `weav frontmatter` rewrites the file unless `--stdout` is passed.
+
+  Every help page - the root and both subcommands - now ends with a short
+  resources block naming the template search paths, the merge order and the
+  flag, because an agent that only reads `--help` would otherwise never learn
+  the flag exists.
+
 * **`weav frontmatter` command** - Add, change and remove keys in a Markdown or
   reST document's YAML frontmatter:
   `weav frontmatter contract.md --upsert origin=$(git rev-parse HEAD)`. Comments,

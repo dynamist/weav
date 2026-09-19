@@ -47,7 +47,12 @@ gh pr merge --rebase --delete-branch
 - Two commands: `weav render TEMPLATE [OPTIONS]` and `weav frontmatter FILE [OPTIONS]`
 - Shell completion for template names via `complete_template()` callback
 - Entry point: `app = typer.Typer(cls=WeavGroup)` with an `@app.callback()` that
-  owns the global `--version`
+  owns the global `--version` and `--skill`
+- `--skill` prints `weav/SKILL.md` verbatim to stdout and exits 0 with an empty
+  stderr, so `weav --skill > ~/.claude/skills/weav/SKILL.md` just works. It is
+  eager like `--version`: a bare `weav` answers with help on stderr and exit 2,
+  which would otherwise win. It uses `typer.echo`, **not** the module `console` --
+  rich would rewrap the Markdown and eat its brackets.
 - `WeavGroup` overrides `resolve_command()` to dispatch an unrecognised,
   non-option first argument to `render`, keeping the pre-subcommand
   `weav TEMPLATE ...` form working with a stderr warning. It returns the **full**
@@ -62,6 +67,36 @@ gh pr merge --rebase --delete-branch
   not even be installed. Do not `import click` here to tighten the annotations;
   it would add a dependency and still be wrong on one version or the other. See
   dynamist/phabfive#330. Verified working on typer 0.24.1 and 0.27.2.
+
+### Agent Help Footer (`agents.py`)
+- `AGENT_HELP_FOOTER` - the resources block that closes every help page, and
+  `AgentFooterMixin` / `AgentFooterCommand`, which write it
+- Mixed into `WeavGroup` for the root and passed as `cls=` to both leaf commands.
+  phabfive carries its equivalent block on groups only, but weav has no
+  intermediate groups, so `weav render --help` is where an agent lands
+- The block is written line by line by `format_epilog` rather than passed as
+  Typer's `epilog=`, because click's default runs the epilog through
+  `write_text`, which rewraps the paragraphs and flattens the indentation the
+  block is made of. `tests/test_agent_help_footer.py` asserts on an indented line
+  to catch a regression back to that
+- Those tests run **out of process**. `weav/cli.py` sets `TYPER_USE_RICH=0` as it
+  imports, which only takes effect if nothing imported typer first; under
+  `CliRunner`, `typer.testing` has already imported typer with rich enabled, and
+  typer then renders help through rich, which never calls `format_epilog`
+- `tests/test_skill.py` also extracts every `weav ...` invocation from the
+  skill's fenced bash blocks and asserts both the command path and each long
+  option resolve in the click tree -- a skill that documents an option that no
+  longer exists is worse than no skill
+
+### Agent Skill (`SKILL.md`)
+- Package data, read via `importlib.resources.files("weav")`, the same mechanism
+  `get_template_paths()` uses
+- Shipped in the wheel with no `pyproject.toml` change: hatchling has no
+  `[tool.hatch.build]` section and takes the whole `weav/` tree, as it already
+  does for `py.typed`. The one-file executables need `--collect-data weav` in
+  `.github/workflows/release.yml`
+- Every claim in it is verified against the built CLI rather than read off the
+  source. Re-verify when the behaviour it documents changes
 
 ### Frontmatter Layer (`frontmatter.py`)
 - `FrontmatterDocument` - a document split into a YAML mapping and a body;

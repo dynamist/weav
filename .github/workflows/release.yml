@@ -101,6 +101,7 @@ jobs:
         shell: bash
         run: |
           pyinstaller --onefile --name weav weav/cli.py \
+            --collect-data weav \
             --collect-data rich \
             --copy-metadata rich \
             --hidden-import jinja2 \
