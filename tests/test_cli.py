@@ -158,3 +158,144 @@ def test_verbose_reports_exec_source(py, tmp_path):
     result = runner.invoke(app, [str(template), "--verbose", "--exec", f"tasks={command}"])
     assert result.exit_code == 0
     assert f"Loaded exec:{command} with keys: ['tasks']" in result.output
+
+
+WITH_MARKER = b"---\nstatus: Rolling\ndocid: DYN-1\n---\n# Manifesto\n"
+HR_IN_BODY = b"# Release notes\n\nIntro.\n\n---\n\nAppendix.\n"
+
+
+def test_frontmatter_edits_in_place_by_default(doc):
+    """Without --stdout the file is rewritten and nothing is printed."""
+    path = doc(WITH_MARKER)
+    result = runner.invoke(app, ["frontmatter", str(path), "--upsert", "origin=abc"])
+    assert result.exit_code == 0
+    assert result.stdout == ""
+    assert b"origin: abc" in path.read_bytes()
+
+
+def test_frontmatter_stdout_leaves_the_file_alone(doc):
+    """--stdout prints the document and must not touch the file."""
+    path = doc(WITH_MARKER)
+    result = runner.invoke(app, ["frontmatter", str(path), "--upsert", "origin=abc", "--stdout"])
+    assert result.exit_code == 0
+    assert "origin: abc" in result.stdout
+    assert path.read_bytes() == WITH_MARKER
+
+
+def test_frontmatter_no_op_leaves_bytes_identical(doc):
+    """Neither --upsert nor --delete must still round trip exactly."""
+    path = doc(WITH_MARKER)
+    result = runner.invoke(app, ["frontmatter", str(path)])
+    assert result.exit_code == 0
+    assert path.read_bytes() == WITH_MARKER
+
+
+def test_frontmatter_delete(doc):
+    """--delete removes keys, accepting a comma-separated list."""
+    path = doc(WITH_MARKER)
+    result = runner.invoke(app, ["frontmatter", str(path), "--delete", "docid,status"])
+    assert result.exit_code == 0
+    text = path.read_text()
+    assert "docid:" not in text
+    assert "status:" not in text
+
+
+def test_frontmatter_verbose_reports_on_stderr(doc):
+    """The change summary belongs on stderr, not stdout."""
+    path = doc(WITH_MARKER)
+    result = runner.invoke(
+        app,
+        ["frontmatter", str(path), "--upsert", "origin=abc", "--delete", "docid", "-v"],
+    )
+    assert result.exit_code == 0
+    assert "inserted: origin" in result.stderr
+    assert "deleted: docid" in result.stderr
+    assert "inserted:" not in result.stdout
+
+
+def test_frontmatter_preserves_body_thematic_break(doc):
+    """The regression case: an upsert must not eat the document."""
+    path = doc(HR_IN_BODY)
+    result = runner.invoke(app, ["frontmatter", str(path), "--upsert", "origin=abc"])
+    assert result.exit_code == 0
+
+    text = path.read_text()
+    assert "origin: abc" in text
+    assert "# Release notes" in text
+    assert "Appendix." in text
+
+
+def test_frontmatter_missing_file_exits_two(tmp_path):
+    """A non-existent file is a usage error."""
+    result = runner.invoke(app, ["frontmatter", str(tmp_path / "nope.md")])
+    assert result.exit_code == 2
+
+
+def test_frontmatter_malformed_exits_one(doc):
+    """A declared but invalid block exits 1 and leaves the file alone."""
+    raw = b"---\ndocid: DYN-1\nmalformed\n---\n# Manifesto\n"
+    path = doc(raw)
+    result = runner.invoke(app, ["frontmatter", str(path), "--upsert", "a=b"])
+    assert result.exit_code == 1
+    assert path.read_bytes() == raw
+
+
+def test_bare_template_form_still_works(tmp_path):
+    """The deprecated `weav TEMPLATE` form renders, warning on stderr only."""
+    template = tmp_path / "test.j2"
+    template.write_text("Hello {{ name }}!")
+    result = runner.invoke(app, [str(template), "--keyval", "name=World"])
+    assert result.exit_code == 0
+    assert "Hello World!" in result.stdout
+    assert "will be removed in weav 1.0" in result.stderr
+    assert "Warning" not in result.stdout
+
+
+def test_shim_passes_the_template_argument_through(tmp_path):
+    """The fallback must not swallow args[0]."""
+    template = tmp_path / "test.j2"
+    template.write_text("{{ a }}-{{ b }}")
+    result = runner.invoke(app, [str(template), "-k", "a=1", "-k", "b=2"])
+    assert result.exit_code == 0
+    assert "1-2" in result.stdout
+
+
+def test_shim_does_not_swallow_subcommands():
+    """`weav frontmatter` with no file is a usage error, not a template miss."""
+    result = runner.invoke(app, ["frontmatter"])
+    assert result.exit_code == 2
+    assert "Missing argument" in result.stderr
+
+
+def test_unknown_option_still_reports_no_such_option():
+    """An unknown flag must not be treated as a template name."""
+    result = runner.invoke(app, ["--bogus"])
+    assert result.exit_code == 2
+    assert "No such option" in result.stderr
+
+
+def test_template_named_like_a_subcommand_needs_the_explicit_form(tmp_path):
+    """A template named `render` is reachable via `weav render <path>`."""
+    template = tmp_path / "render"
+    template.write_text("Hi {{ n }}!")
+    result = runner.invoke(app, ["render", str(template), "-k", "n=X"])
+    assert result.exit_code == 0
+    assert "Hi X!" in result.stdout
+
+
+def test_explicit_render_subcommand(tmp_path):
+    """The new explicit form renders without any warning."""
+    template = tmp_path / "test.j2"
+    template.write_text("Hello {{ name }}!")
+    result = runner.invoke(app, ["render", str(template), "--keyval", "name=World"])
+    assert result.exit_code == 0
+    assert "Hello World!" in result.stdout
+    assert result.stderr == ""
+
+
+def test_help_lists_both_commands():
+    """Group help must advertise render and frontmatter."""
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "render" in result.stdout
+    assert "frontmatter" in result.stdout

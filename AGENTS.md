@@ -16,8 +16,9 @@ uv sync --group dev
 
 # Run the CLI
 uv run weav --help
-uv run weav template.j2 --data config.yaml
-uv run weav template.j2 --keyval name=World
+uv run weav render template.j2 --data config.yaml
+uv run weav render template.j2 --keyval name=World
+uv run weav frontmatter doc.md --upsert origin=$(git rev-parse HEAD)
 
 # Run tests
 uv run pytest                        # quick test with coverage
@@ -43,9 +44,45 @@ gh pr merge --rebase --delete-branch
 
 ### CLI Layer (`cli.py`)
 - Uses `typer` for argument parsing with type-annotated function signatures
-- Single command interface: `weav TEMPLATE [OPTIONS]`
+- Two commands: `weav render TEMPLATE [OPTIONS]` and `weav frontmatter FILE [OPTIONS]`
 - Shell completion for template names via `complete_template()` callback
-- Entry point: `app = typer.Typer()` → `main()`
+- Entry point: `app = typer.Typer(cls=WeavGroup)` with an `@app.callback()` that
+  owns the global `--version`
+- `WeavGroup` overrides `resolve_command()` to dispatch an unrecognised,
+  non-option first argument to `render`, keeping the pre-subcommand
+  `weav TEMPLATE ...` form working with a stderr warning. It returns the **full**
+  `args` rather than Click's usual `args[1:]`, because `args[0]` is the template
+  rather than a command name. Guarded on a leading `-` specifically, since Click
+  also treats `/` as an option prefix and would misread absolute template paths.
+  **Remove this class at 1.0.**
+- `WeavGroup.resolve_command()` deliberately leaves its Click-typed parameters
+  dynamic. typer stopped building `TyperGroup` on `click.Group` in 0.26 and now
+  uses a vendored `typer._click`, and typer 0.27 dropped `click` as a dependency
+  altogether -- so the concrete classes differ by typer version and `click` may
+  not even be installed. Do not `import click` here to tighten the annotations;
+  it would add a dependency and still be wrong on one version or the other. See
+  dynamist/phabfive#330. Verified working on typer 0.24.1 and 0.27.2.
+
+### Frontmatter Layer (`frontmatter.py`)
+- `FrontmatterDocument` - a document split into a YAML mapping and a body;
+  `from_file()`, `parse()`, `patch()`, `dumps()`, `write()`
+- `FrontmatterError` - raised only when a declared block fails to parse
+- Uses `ruamel.yaml` in round-trip mode (`YAML(typ="rt")`, `preserve_quotes`) so
+  comments, quoting and block scalars survive an edit. Dumps via `io.StringIO`;
+  the `ruamel.yaml.string` package is deliberately **not** a dependency.
+- Parse rules, all three of which exist because writes are in place by default
+  and a mis-split would destroy the document:
+  1. Anchor on a **leading** `---` and close on the **first** `---`/`...` line
+     after it. Never scan for the last one -- a `---` thematic break in the body
+     is not a delimiter. Comparison is exact on the stripped line, so `----`
+     does not match; the raw line is retained so trailing whitespace round trips.
+  2. The parsed value must be a mapping. Body prose loaded as a scalar or
+     sequence is not frontmatter.
+  3. A parse error is fatal only when a leading `---` was present. Without one
+     we are guessing, and guessing must never abort or destroy.
+- Reads and writes UTF-8 explicitly, and restores the source BOM and line ending
+  via a single `write_bytes()`. `write()` returns `False` and leaves the file
+  (and its mtime) alone when the bytes are unchanged.
 
 ### Template Layer (`template.py`)
 - `compile_template()` - main entry point for rendering
@@ -71,6 +108,8 @@ gh pr merge --rebase --delete-branch
 - `load_and_wrap()` - parse a stream with optional key wrapping (lists/scalars
   wrapped under "data" when no key is given)
 - `mangle_keyval()` - parse KEY=VAL strings
+- `mangle_commas()` - flatten comma-separated strings into a list (used by
+  `weav frontmatter --delete`)
 
 ### Data Flow
 1. CLI parses arguments → `compile_template()`
