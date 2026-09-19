@@ -85,7 +85,11 @@ def mangle_keyval(keys: list[str], sep: str | None = ",") -> dict[str, str]:
     for keyvals in keys:
         for pair in _split_pairs(keyvals, sep):
             key, found, value = pair.partition("=")
-            if not found:
+            # Keys are stripped so "a=1, b=2" does not yield a " b" key; the
+            # separator heuristic above cannot tell that space from part of a
+            # value, and a padded key is never what the caller meant.
+            key = key.strip()
+            if not found or not key:
                 raise ValueError(f"expected KEY=VALUE, got {pair!r}")
             result[key] = value
     return result

@@ -148,10 +148,6 @@ class FrontmatterDocument:
         """Insert or update keys, then delete keys, reporting what changed."""
         result: dict[str, list[str]] = {"inserted": [], "updated": [], "deleted": []}
 
-        if upsert or delete:
-            # The block is about to change, so the verbatim copy is stale.
-            self._raw_block = None
-
         if upsert:
             # Sorted so the reported order is stable between runs.
             result["inserted"] = sorted(upsert.keys() - self.frontmatter.keys())
@@ -169,6 +165,12 @@ class FrontmatterDocument:
                     result["deleted"].append(key)
                     del self.frontmatter[key]
             result["deleted"].sort()
+
+        if any(result.values()):
+            # Only now is the verbatim copy stale. Clearing it earlier would
+            # re-dump the block for a delete that matched nothing, reflowing
+            # the author's spacing and indentation for no reason.
+            self._raw_block = None
 
         return result
 
@@ -198,26 +200,36 @@ class FrontmatterDocument:
         """Write the document to `path`, returning whether the bytes changed.
 
         The original BOM and line ending are restored. The content is written
-        to a temporary file in the same directory and moved into place with
+        to a temporary file beside the target and moved into place with
         :meth:`Path.replace`, so a reader never sees a partial document and a
         crash mid-write cannot destroy the original.
+
+        A symlink is followed rather than replaced, so the canonical file is
+        the one updated. Only the mode is carried over -- ownership, ACLs and
+        extended attributes are not -- and a hardlinked file's link count is
+        broken, which is inherent to replacing rather than truncating.
         """
         text = self.dumps().replace("\n", self.newline)
-        payload = (BOM if self.bom else "") + text
+        payload = ((BOM if self.bom else "") + text).encode("utf-8")
 
-        if path.exists() and path.read_bytes() == payload.encode("utf-8"):
+        # Resolve first: replacing `path` itself would swap out a symlink and
+        # leave its target stale. The temp file has to live in the resolved
+        # parent too, or the rename could cross a filesystem and fail.
+        target = path.resolve()
+
+        if target.exists() and target.read_bytes() == payload:
             return False
 
         # delete=False because the file is moved into place, not discarded.
         with tempfile.NamedTemporaryFile(
-            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+            dir=target.parent, prefix=f".{target.name}.", suffix=".tmp", delete=False
         ) as handle:
             temp = Path(handle.name)
-            handle.write(payload.encode("utf-8"))
+            handle.write(payload)
         try:
-            if path.exists():
-                shutil.copymode(path, temp)
-            temp.replace(path)
+            if target.exists():
+                shutil.copymode(target, temp)
+            temp.replace(target)
         except OSError:
             temp.unlink(missing_ok=True)
             raise
