@@ -83,9 +83,16 @@ gh pr merge --rebase --delete-branch
      sequence is not frontmatter.
   3. A parse error is fatal only when a leading `---` was present. Without one
      we are guessing, and guessing must never abort or destroy.
-- Reads and writes UTF-8 explicitly, and restores the source BOM and line ending
-  via a single `write_bytes()`. `write()` returns `False` and leaves the file
-  (and its mtime) alone when the bytes are unchanged.
+- Reads and writes UTF-8 explicitly, and restores the source BOM and line ending.
+- `write()` is an atomic replace, not a truncating write: it writes a temporary
+  file in the target's directory and `Path.replace()`s it into place, so a crash
+  mid-write cannot destroy the original. It **resolves the path first**, so a
+  symlinked document updates its target rather than being replaced by a regular
+  file -- do not simplify that away. Only the mode is carried over; ownership,
+  ACLs and extended attributes are not, and a hardlinked file's link count is
+  broken. Those are inherent to replacing rather than truncating.
+- `write()` returns `False` and leaves the file (and its mtime) alone when the
+  bytes are unchanged.
 
 ### Template Layer (`template.py`)
 - `compile_template()` - main entry point for rendering
