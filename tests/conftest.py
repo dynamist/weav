@@ -2,6 +2,7 @@
 
 import shlex
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -22,3 +23,15 @@ def _py_command(code, *args):
 def py():
     """Return a helper that builds a `python -c ...` command string."""
     return _py_command
+
+
+@pytest.fixture
+def doc(tmp_path):
+    """Return a helper that writes document bytes to a temp file."""
+
+    def _write(data: bytes, name: str = "doc.md") -> Path:
+        path = tmp_path / name
+        path.write_bytes(data)
+        return path
+
+    return _write
