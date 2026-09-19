@@ -34,6 +34,8 @@ TRAILING_SPACE_CLOSE = b"---\nstatus: active\n--- \n# Doc\n"
 INDENTED_OPENER = b"  ---\n\n# Title\n\n---\n\nBody\n"
 COMMENTS_ONLY = b"---\n# just a comment\n---\nBody\n"
 COMMENT_AND_KEYS = b"---\n# a comment\na: 1\n---\nBody\n"
+# A setext h2 whose text contains a colon: ordinary Markdown, not frontmatter.
+SETEXT_H2 = b"Overview: the big picture\n---\n\nBody text.\n"
 
 ROUND_TRIP_CASES = [
     "WITH_MARKER",
@@ -54,6 +56,8 @@ ROUND_TRIP_CASES = [
     "INDENTED_OPENER",
     "COMMENTS_ONLY",
     "COMMENT_AND_KEYS",
+    "WITHOUT_MARKER",
+    "SETEXT_H2",
 ]
 
 
@@ -176,12 +180,31 @@ def test_no_leading_marker_is_never_fatal(doc):
     assert "status: Rolling" in document.content
 
 
-def test_marker_less_frontmatter_is_parsed(doc):
-    """A block closed by `---` but not opened by one is still frontmatter."""
+def test_marker_less_block_is_not_frontmatter(doc):
+    """A block closed by `---` but never opened by one is body content.
+
+    Recognising it would consume a setext h2 -- see
+    test_setext_heading_is_not_frontmatter.
+    """
     path = doc(WITHOUT_MARKER)
     document = FrontmatterDocument.from_file(path)
-    assert document.frontmatter["status"] == "Rolling"
-    assert "# Manifesto" in document.content
+
+    assert document.has_block is False
+    assert dict(document.frontmatter) == {}
+    assert "status: Rolling" in document.content
+
+
+def test_setext_heading_is_not_frontmatter(doc):
+    """`Title: subtitle` underlined by `---` is a Markdown h2, not metadata."""
+    path = doc(SETEXT_H2)
+    document = FrontmatterDocument.from_file(path)
+
+    assert document.has_block is False
+    assert "Overview: the big picture" in document.content
+
+    # A no-op invocation must not rewrite an ordinary Markdown document.
+    assert document.write(path) is False
+    assert path.read_bytes() == SETEXT_H2
 
 
 def test_empty_block_is_preserved(doc):
@@ -201,7 +224,7 @@ def test_frontmatter_only_document_keeps_its_closing_marker(doc):
 
 def test_content_is_separated_from_frontmatter(doc):
     """Frontmatter keys must not leak into the body."""
-    path = doc(WITHOUT_MARKER)
+    path = doc(WITH_MARKER)
     document = FrontmatterDocument.from_file(path)
     assert "status: Rolling" not in document.content
     assert "status" in document.frontmatter
