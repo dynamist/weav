@@ -257,23 +257,15 @@ The rules are strict on purpose, because a mis-split would destroy the document:
 
 ### What survives an edit
 
-Comments, quoting styles, block scalars, a byte order mark, CRLF line endings
-and the file mode all round trip, and a symlink is followed rather than
-replaced. Writes go through a temporary file and an atomic rename.
+Comments, quoting styles, block scalars, indentation, a byte order mark, CRLF
+line endings and the file mode all round trip, and a symlink is followed rather
+than replaced. Writes go through a temporary file and an atomic rename.
 
-What does **not** round trip is block sequence indentation: an indented
-
-```yaml
-tags:
-  - a
-```
-
-comes back as
-
-```yaml
-tags:
-- a
-```
+Indentation is measured from the block itself, so a sequence indented under its
+key stays indented and one written flush stays flush. A block that mixes the
+two styles, or that indents its mappings inconsistently, is emitted in the
+library's own style -- the dash in its key's column, a nested mapping two in --
+because no single setting can preserve both.
 
 Upserted values are always written as strings, so `--upsert count=1` produces
 `count: '1'`, not an integer. Edit the file yourself when you need a typed

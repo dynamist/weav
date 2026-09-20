@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -16,6 +17,99 @@ from ruamel.yaml.error import YAMLError
 BOM = "\ufeff"
 EOD_MARKER = "---"
 EOF_MARKER = "..."
+
+# ruamel carries one global indentation setting rather than recording one per
+# node, so a block whose style is not measured is re-emitted with these: a
+# nested mapping two columns in, and a block sequence whose dash sits in its
+# parent key's own column.
+DEFAULT_INDENT = (2, 2, 0)
+
+# A block sequence entry. Whatever follows the dash starts a column of its
+# own, which is why the content column is taken from the match span.
+_ENTRY = re.compile(r"^(?P<indent> *)-(?: +(?P<rest>.*?))?\s*$")
+# A mapping key, quoted or plain, with the value it carries. YAML requires a
+# space after the colon, so `key:value` is a plain scalar and must not match.
+_KEY = re.compile(r"""^(?:"[^"]*"|'[^']*'|[^\s#][^:]*?):(?: +(?P<value>\S.*?))?\s*$""")
+_BLANK_OR_COMMENT = re.compile(r"^\s*(?:#.*)?$")
+# `|` and `>`, with their chomping and explicit indentation indicators.
+_BLOCK_SCALAR = re.compile(r"^[|>][\d+-]{0,2}$")
+
+
+def detect_indent(block: str) -> tuple[int, int, int]:
+    """Measure `block`'s own indentation as ruamel emitter settings.
+
+    Returns `(mapping, sequence, offset)`. The two styles are measured
+    independently, and each only from an unambiguous case: a line whose
+    immediately preceding structural line is a key that opened a block.
+    Nothing else can be trusted to be structure at all -- a plain scalar's
+    continuation lines, a flow collection split over several lines and the
+    second key of a sequence entry all follow a key that already had a value,
+    so none of them are measured. A block scalar's body is skipped outright.
+
+    A style the block does not exercise, or exercises inconsistently, falls
+    back to :data:`DEFAULT_INDENT`. Matching one of two mixed styles would
+    reflow the other, so an inconsistent block is left to the emitter.
+    """
+    mappings: set[int] = set()
+    offsets: set[int] = set()
+    # The previous structural line: its column, and whether it opened a block.
+    previous: tuple[int, bool] = (0, False)
+    scalar: int | None = None
+
+    for line in block.split("\n"):
+        if scalar is not None:
+            # A block scalar runs until a line indented no further than its key.
+            if not line.strip() or _column(line) > scalar:
+                continue
+            scalar = None
+        if _BLANK_OR_COMMENT.match(line):
+            continue
+
+        column, opens = previous
+        entry = _ENTRY.match(line)
+        if entry is not None:
+            dash = len(entry["indent"])
+            # The offset is the dash's column within its parent key's block,
+            # so a sequence flush with its key measures 0 -- hence `<=`.
+            if opens and column <= dash:
+                offsets.add(dash - column)
+            text = entry["rest"] or ""
+            here = entry.start("rest") if text else dash
+        else:
+            text = line.lstrip(" ")
+            here = _column(line)
+
+        key = _KEY.match(text)
+        if key is None:
+            previous = (here, False)
+            continue
+        # A key on the dash's own line is indented by the sequence, not by the
+        # mapping, so `- name: a` measures nothing.
+        if entry is None and opens and column < here:
+            mappings.add(here - column)
+        value = key["value"]
+        # A trailing comment is not a value: `key:  # note` still opens a block.
+        if value is None or value.startswith("#"):
+            previous = (here, True)
+        else:
+            previous = (here, False)
+            if _BLOCK_SCALAR.match(value):
+                scalar = here
+
+    mapping, sequence, offset = DEFAULT_INDENT
+    if len(mappings) == 1:
+        mapping = mappings.pop()
+    if len(offsets) == 1:
+        offset = offsets.pop()
+        # ruamel places the dash at `offset` and the entry's content at
+        # `sequence`; the dash and the space after it are the two between them.
+        sequence = offset + 2
+    return mapping, sequence, offset
+
+
+def _column(line: str) -> int:
+    """Return the column at which `line`'s content starts."""
+    return len(line) - len(line.lstrip(" "))
 
 
 class FrontmatterError(Exception):
@@ -54,6 +148,12 @@ class FrontmatterDocument:
         """Configure a round-trip YAML instance preserving comments and quotes."""
         self.yaml = YAML(typ="rt")
         self.yaml.preserve_quotes = True
+        self._set_indent(DEFAULT_INDENT)
+
+    def _set_indent(self, indent: tuple[int, int, int]) -> None:
+        """Point the emitter at an indentation style."""
+        mapping, sequence, offset = indent
+        self.yaml.indent(mapping=mapping, sequence=sequence, offset=offset)
 
     @classmethod
     def from_file(cls, path: Path) -> FrontmatterDocument:
@@ -122,6 +222,12 @@ class FrontmatterDocument:
             self._set_content_only()
             return
 
+        # Indentation is not round-tripped per node, so a re-dump would
+        # otherwise flatten an indented block sequence and normalise a mapping
+        # indented by anything but two -- a diff the caller never asked for on
+        # a file that is edited in place by default.
+        self._set_indent(detect_indent(text))
+
         self.frontmatter = data
         self.content = "\n".join(lines[end + 1 :])
         self.has_block = True
@@ -133,6 +239,9 @@ class FrontmatterDocument:
 
     def _set_content_only(self) -> None:
         """Treat the whole document as body content with no frontmatter."""
+        # There is no block to take a style from, and parse() is re-runnable:
+        # a style measured on an earlier pass must not outlive its block.
+        self._set_indent(DEFAULT_INDENT)
         self.frontmatter = CommentedMap()
         self.content = "\n".join(self.lines)
         self.has_block = False

@@ -3,7 +3,12 @@
 import sys
 
 import pytest
-from weav.frontmatter import FrontmatterDocument, FrontmatterError
+from weav.frontmatter import (
+    DEFAULT_INDENT,
+    FrontmatterDocument,
+    FrontmatterError,
+    detect_indent,
+)
 
 # Documents are byte constants rather than committed fixture files: CI runs on
 # windows-latest and the repository has no .gitattributes, so checkout
@@ -448,3 +453,111 @@ def test_upsert_that_changes_nothing_does_not_reformat(doc):
     again.patch(upsert={"status": "active"})
     assert again.write(path) is False
     assert path.read_bytes() == once
+
+
+# One per row of the table in issue #82. Every block carries `title: plan`, so
+# re-setting it is a semantic no-op that still forces a re-dump -- which is
+# exactly the reported invocation. The indented and the flush cases fail in
+# opposite directions, so a fix for one can silently break the other.
+INDENT_STYLES = {
+    "sequence indented by two": b"---\ntitle: plan\ntags:\n  - infra\n  - platform\n---\n# Doc\n",
+    "sequence indented by four": (
+        b"---\ntitle: plan\ntags:\n    - infra\n    - platform\n---\n# Doc\n"
+    ),
+    "sequence flush with its key": b"---\ntitle: plan\ntags:\n- infra\n- platform\n---\n# Doc\n",
+    "sequence of mappings": (
+        b"---\ntitle: plan\nauthors:\n  - name: Ada\n    role: editor\n"
+        b"  - name: Linus\n    role: reviewer\n---\n# Doc\n"
+    ),
+    "sequence of mappings flush": (
+        b"---\ntitle: plan\nauthors:\n- name: Ada\n  role: editor\n---\n# Doc\n"
+    ),
+    "nested mapping at four": (
+        b"---\ntitle: plan\nnested:\n    deep:\n        deeper: 1\n---\n# Doc\n"
+    ),
+    "nested mapping at two": b"---\ntitle: plan\nnested:\n  deep:\n    deeper: 1\n---\n# Doc\n",
+    "block scalar": b"---\ntitle: plan\nbody: |\n  hej foo bar\n  baz hej hej\n---\n# Doc\n",
+    "flow style": b"---\ntitle: plan\ntags: [infra, platform]\nowner: {team: core}\n---\n# Doc\n",
+    "comments and quotes": (
+        b"---\n# a leading comment\ntitle: plan\nstatus: 'active'  # trailing\n"
+        b'label: "quoted"\ntags:\n  - infra\n---\n# Doc\n'
+    ),
+    "both styles at four": b"---\ntitle: plan\nnested:\n    tags:\n        - infra\n---\n# Doc\n",
+    "four-space mapping, flush sequence": (
+        b"---\ntitle: plan\nnested:\n    tags:\n    - infra\n---\n# Doc\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(INDENT_STYLES))
+def test_indentation_survives_a_semantic_no_op(doc, name):
+    """Re-setting a key to its own value must not re-indent the block.
+
+    ruamel has one global indentation setting rather than one per node, so
+    without measuring the document first a re-dump flattens an indented block
+    sequence and normalises a mapping indented by anything but two -- the
+    reindentation then lands in the same commit as the intended edit.
+    """
+    raw = INDENT_STYLES[name]
+    path = doc(raw)
+
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"title": "plan"})
+
+    assert document.write(path) is False
+    assert path.read_bytes() == raw
+
+
+@pytest.mark.parametrize("name", sorted(INDENT_STYLES))
+def test_indentation_survives_a_real_edit(doc, name):
+    """An edit must change the keys it was given and nothing else."""
+    raw = INDENT_STYLES[name]
+    path = doc(raw)
+
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"origin": "deadbeef"})
+    document.write(path)
+
+    # The block gained one line and is otherwise the document it was.
+    before = raw.decode().splitlines()
+    after = path.read_text(encoding="utf-8").splitlines()
+    assert [line for line in after if line not in ("origin: deadbeef",)] == before
+    assert "origin: deadbeef" in after
+
+
+@pytest.mark.parametrize(
+    ("block", "expected"),
+    [
+        ("tags:\n  - a\n", (2, 4, 2)),
+        ("tags:\n    - a\n", (2, 6, 4)),
+        ("tags:\n- a\n", (2, 2, 0)),
+        ("nested:\n    deep: 1\n", (4, 2, 0)),
+        ("nested:\n    tags:\n        - a\n", (4, 6, 4)),
+        # A key with only a trailing comment still opens a block.
+        ("tags:  # note\n  - a\n", (2, 4, 2)),
+        # Nothing to measure.
+        ("title: plan\n", DEFAULT_INDENT),
+        ("tags: [a, b]\n", DEFAULT_INDENT),
+    ],
+)
+def test_detect_indent_measures_the_block(block, expected):
+    """The scanner must read back the style the block was written in."""
+    assert detect_indent(block) == expected
+
+
+def test_detect_indent_falls_back_on_mixed_styles():
+    """No single setting can preserve two styles, so measure neither."""
+    assert detect_indent("a:\n  - x\nb:\n- y\n") == DEFAULT_INDENT
+    assert detect_indent("a:\n  b: 1\nc:\n    d: 2\n") == DEFAULT_INDENT
+
+
+def test_detect_indent_ignores_block_scalar_bodies():
+    """A dash inside a literal scalar is text, not a sequence entry."""
+    assert detect_indent("body: |\n  - not a sequence\n  - really\n") == DEFAULT_INDENT
+    # And the scalar must not hide a real sequence that follows it.
+    assert detect_indent("body: |\n  - text\ntags:\n  - a\n") == (2, 4, 2)
+
+
+def test_detect_indent_ignores_the_keys_of_a_sequence_entry():
+    """`- name: a` is indented by the sequence, so it measures no mapping."""
+    assert detect_indent("items:\n  - name: a\n    role: b\n") == (2, 4, 2)
