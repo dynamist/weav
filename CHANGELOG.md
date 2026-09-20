@@ -1,5 +1,24 @@
 # Unreleased
 
+## Bug Fixes
+
+* **`weav frontmatter` keeps the document's own indentation** - An edit no
+  longer flattens an indented block sequence or renormalises a mapping indented
+  by anything but two. `ruamel.yaml` carries a single global indentation setting
+  rather than recording one per node, so re-dumping a block emitted it in the
+  library's style whatever the author had written; `weav frontmatter doc.md
+  --upsert title=$(current value)` would rewrite the file, and stamping a docs
+  tree mixed the reindentation into the same commit as the intended change.
+
+  The block's own style is now measured before it is re-emitted, from the one
+  case that is unambiguously structure: a line whose preceding line is a key
+  that opened a block. Block scalar bodies are skipped, so a `- ` inside a
+  literal scalar is not mistaken for a sequence entry. A block that mixes two
+  styles is left to the emitter, since matching one would reflow the other.
+
+  Long plain scalars are still folded at column 80 on a re-dump, which is the
+  same class of unasked-for rewrite and is not addressed here.
+
 
 # 0.3.0 (2026-09-19)
 
