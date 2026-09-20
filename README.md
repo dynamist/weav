@@ -297,10 +297,11 @@ doc.patch(upsert={"origin": "deadbeef"})
 print(doc.frontmatter["origin"], doc.content, doc.dumps())
 ```
 
-The constructor expects text that is already decoded and uses `\n` line
-endings. Unlike `from_file()` it does not strip a byte order mark or fold
-CRLF, so decode with `utf-8-sig` and normalise first if the bytes came from
-somewhere that might carry either.
+The constructor decodes exactly as `from_file()` does: a leading byte order
+mark is recorded and stripped, and CRLF or lone-CR endings are folded, so the
+same bytes give the same document whichever way they arrive. `dumps()` returns
+the document with `\n` endings and no BOM; `write()` is what restores the
+original endings and the mark.
 
 `doc.frontmatter` is a `ruamel.yaml` `CommentedMap`, which is a `dict` that
 also remembers comments and quoting. Values are mostly what you would expect --

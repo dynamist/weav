@@ -25,6 +25,30 @@
 
 ## Bug Fixes
 
+* **`FrontmatterDocument(text)` no longer duplicates the block on a document
+  with a byte order mark** - the constructor and `from_file()` did not decode
+  the same way. Only `from_file()` stripped a BOM and folded CRLF, so text
+  handed straight to the constructor did not match a leading `---`, parsed as
+  having no frontmatter at all, and the next `patch()` prepended a second block
+  while the original stayed behind in the body. `dumps()` returned a document
+  with three `---` lines and the real metadata demoted to prose, and since
+  writes are in place by default, a `write()` persisted that. A CRLF document
+  came out with mixed line endings for the same reason - the re-emitted block
+  was LF while the delimiters and body kept their CRLF.
+
+  Reading a file is only a way of obtaining text, so the two now share one
+  decode path and `from_file()` is the constructor. The same bytes give the
+  same document either way, which is asserted over every round-trip case rather
+  than for the two that happened to be reported. `dumps()` is unchanged and
+  still normalised - LF endings and no mark - and `write()` is still what
+  restores the document's own. Closes #87.
+
+  This was reachable from the CLI only through a file, which always took the
+  correct path; it bit consumers using weav as a library, where the text
+  usually arrives from an HTTP body, a database row or a git blob rather than
+  from disk.
+
+
 * **`import weav` no longer fails on a source tree** - `weav/__init__.py` read
   its version from the installed distribution's metadata as it imported, so a
   vendored copy, a checkout that was never installed, or any `sys.path` use

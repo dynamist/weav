@@ -4,6 +4,7 @@ import sys
 
 import pytest
 from weav.frontmatter import (
+    BOM,
     DEFAULT_INDENT,
     FrontmatterDocument,
     FrontmatterError,
@@ -24,6 +25,9 @@ PLAIN = b"# Manifesto\n\nWe love **sm\xc3\xb6rg\xc3\xa5sbord**.\n"
 EMPTY_BLOCK = b"---\n---\n# Manifesto\n\nWe love **sm\xc3\xb6rg\xc3\xa5sbord**.\n"
 WITH_BOM = b"\xef\xbb\xbf---\nstatus: Rolling\n---\n# Manifesto\n"
 WITH_CRLF = b"---\r\nstatus: Rolling\r\n---\r\n# Manifesto\r\n"
+WITH_BOM_CRLF = b"\xef\xbb\xbf---\r\nstatus: Rolling\r\n---\r\n# Manifesto\r\n"
+# A lone CR: classic Mac endings, folded to LF on the way in.
+WITH_CR = b"---\rstatus: Rolling\r---\r# Manifesto\r"
 BAD_MISSING_COLON = b"---\ndocid: DYN-2309-0x-0y\nmalformed\n---\n# Manifesto\n"
 BAD_ONE_DASH = b"-\nstatus: Rolling\n---\n# Manifesto\n"
 
@@ -51,6 +55,7 @@ ROUND_TRIP_CASES = [
     "EMPTY_BLOCK",
     "WITH_BOM",
     "WITH_CRLF",
+    "WITH_BOM_CRLF",
     "HR_IN_BODY",
     "FM_PLUS_HR",
     "FENCED_HR",
@@ -111,6 +116,80 @@ def test_bom_is_preserved_and_not_doubled(doc):
     assert raw.startswith(b"\xef\xbb\xbf")
     assert raw.count(b"\xef\xbb\xbf") == 1
     assert b"origin: abc123" in raw
+
+
+# The constructor and from_file() must decode identically. They did not: only
+# from_file() stripped a BOM and folded CRLF, so a BOM'd document handed to
+# FrontmatterDocument(text) did not match a leading `---`, parsed as having no
+# frontmatter, and the next patch() prepended a second block while the real one
+# stayed behind in the body. Reading a file is only a way of obtaining text.
+CONSTRUCTOR_CASES = [*ROUND_TRIP_CASES, "WITH_CR"]
+
+
+@pytest.mark.parametrize("name", CONSTRUCTOR_CASES)
+def test_constructor_matches_from_file(doc, name):
+    """Same bytes, same document, whichever door they came through."""
+    raw = globals()[name]
+    from_text = FrontmatterDocument(raw.decode("utf-8"))
+    from_path = FrontmatterDocument.from_file(doc(raw))
+
+    assert dict(from_text.frontmatter) == dict(from_path.frontmatter)
+    assert from_text.content == from_path.content
+    assert from_text.has_block == from_path.has_block
+    assert from_text.bom == from_path.bom
+    assert from_text.newline == from_path.newline
+    assert from_text.dumps() == from_path.dumps()
+
+
+class TestConstructorDecoding:
+    """The decode preamble the constructor used to skip."""
+
+    def test_bom_does_not_hide_the_block(self):
+        document = FrontmatterDocument(WITH_BOM.decode("utf-8"))
+        assert document.has_block is True
+        assert document.frontmatter["status"] == "Rolling"
+        assert document.bom is True
+
+    def test_patching_a_bom_document_does_not_duplicate_the_block(self):
+        """The bug: a second block, and the original demoted into the body."""
+        document = FrontmatterDocument(WITH_BOM.decode("utf-8"))
+        document.patch(upsert={"origin": "abc123"})
+        dumped = document.dumps()
+
+        assert [line for line in dumped.split("\n") if line.rstrip() == "---"] == ["---", "---"]
+        assert "status: Rolling" not in document.content
+        assert document.frontmatter["origin"] == "abc123"
+
+    def test_crlf_does_not_survive_into_the_emitted_block(self):
+        """Mixed endings: a re-emitted block is LF while the rest stayed CRLF."""
+        document = FrontmatterDocument(WITH_CRLF.decode("utf-8"))
+        document.patch(upsert={"origin": "abc123"})
+
+        assert "\r" not in document.dumps()
+        assert document.newline == "\r\n"
+
+    def test_the_bom_is_not_content(self):
+        document = FrontmatterDocument(WITH_BOM.decode("utf-8"))
+        assert BOM not in document.dumps()
+        assert BOM not in document.content
+
+    def test_a_bom_document_written_out_keeps_its_bom(self, doc):
+        """The constructor records the BOM; write() is what puts it back."""
+        document = FrontmatterDocument(WITH_BOM.decode("utf-8"))
+        document.patch(upsert={"origin": "abc123"})
+        path = doc(b"", name="out.md")
+        document.write(path)
+
+        raw = path.read_bytes()
+        assert raw.startswith(b"\xef\xbb\xbf")
+        assert raw.count(b"\xef\xbb\xbf") == 1
+        assert b"origin: abc123" in raw
+
+    def test_empty_text_is_still_a_document(self):
+        document = FrontmatterDocument()
+        assert document.has_block is False
+        assert document.bom is False
+        assert document.newline == "\n"
 
 
 def test_utf8_survives_an_in_place_write(doc):
