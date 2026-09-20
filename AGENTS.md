@@ -174,6 +174,22 @@ gh pr merge --rebase --delete-branch
   3. A parse error is fatal only when a leading `---` was present. Without one
      we are guessing, and guessing must never abort or destroy.
 - Reads and writes UTF-8 explicitly, and restores the source BOM and line ending.
+- **`__init__` and `from_file()` share one decode path, `_adopt()`.** Reading a
+  file is only a way of obtaining text; everything after that is the same
+  document, so `from_file()` is `cls(raw)` and nothing more. They used to
+  differ -- only `from_file()` stripped a BOM and folded CRLF -- and that was a
+  corruption bug rather than an inconsistency: a BOM'd document handed to the
+  constructor did not match a leading `---`, so it parsed as having no
+  frontmatter, and the next `patch()` prepended a second block while the real
+  one stayed behind in the body. A `write()` then persisted it. Do not
+  reintroduce a `cls.__new__(cls)` path here to "avoid re-parsing"; the
+  equivalence is parametrised over every round-trip case in
+  `tests/test_frontmatter.py`
+- A BOM belongs to the encoding, not the document, so it is recorded on the
+  instance and stripped from `lines`. `dumps()` is therefore normalised -- LF,
+  no mark -- and `write()` is the only thing that puts either back. That
+  division is why `dumps()` must not learn to re-emit them: `write()` builds on
+  `dumps()` and would double the BOM
 - `write()` resolves the path first, writes a `NamedTemporaryFile` in the
   resolved parent, copies the original's mode and calls `temp.replace(target)`.
   Three properties depend on that shape and are easy to "simplify" away:

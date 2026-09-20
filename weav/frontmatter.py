@@ -160,11 +160,28 @@ class FrontmatterDocument:
     def __init__(self, text: str = "") -> None:
         """Create a document from `text` and parse it immediately."""
         self._init_yaml()
-        self.bom = False
-        self.newline = "\n"
         self._raw_block: str | None = None
-        self.lines = text.split("\n")
+        self._adopt(text)
         self.parse()
+
+    def _adopt(self, text: str) -> None:
+        """Take `text` as this document's source, normalising it to LF.
+
+        The one decoding path, shared with from_file(), because the two
+        disagreeing is a corruption bug rather than an inconsistency: text
+        whose BOM was left in place does not match a leading `---`, so the
+        document parses as having no frontmatter at all, and the next patch()
+        prepends a second block while the real one stays behind in the body.
+
+        A byte order mark belongs to the encoding rather than the document, so
+        it is recorded and stripped; line endings are folded so the parser and
+        the emitter only ever see "\n". write() restores both.
+        """
+        self.bom = text.startswith(BOM)
+        if self.bom:
+            text = text[1:]
+        self.newline = "\r\n" if "\r\n" in text else "\n"
+        self.lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
     def _init_yaml(self) -> None:
         """Configure a round-trip YAML instance preserving comments and quotes.
@@ -193,16 +210,9 @@ class FrontmatterDocument:
         with path.open("r", encoding="utf-8", newline="") as handle:
             raw = handle.read()
 
-        doc = cls.__new__(cls)
-        doc._init_yaml()
-        doc._raw_block = None
-        doc.bom = raw.startswith(BOM)
-        if doc.bom:
-            raw = raw[1:]
-        doc.newline = "\r\n" if "\r\n" in raw else "\n"
-        doc.lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-        doc.parse()
-        return doc
+        # Just the constructor: reading a file is only a way of obtaining the
+        # text, and everything after that is the same document.
+        return cls(raw)
 
     def parse(self) -> None:
         """Split :attr:`lines` into :attr:`frontmatter` and :attr:`content`."""
