@@ -24,6 +24,14 @@ EOF_MARKER = "..."
 # parent key's own column.
 DEFAULT_INDENT = (2, 2, 0)
 
+# ruamel folds a plain or quoted scalar at its `width` -- 80 by default -- and
+# leaves a trailing space on the line it breaks. No document has a width the
+# way it has an indentation style, so there is nothing to measure: a value the
+# author wrote on one line is emitted on one line, whatever its length. The
+# number is a ceiling no real line reaches rather than a limit meant to apply;
+# ruamel only compares against it, so an unreachable one disables the fold.
+UNLIMITED_WIDTH = 2**20
+
 # A block sequence entry. Whatever follows the dash starts a column of its
 # own, which is why the content column is taken from the match span.
 _ENTRY = re.compile(r"^(?P<indent> *)-(?: +(?P<rest>.*?))?\s*$")
@@ -145,9 +153,17 @@ class FrontmatterDocument:
         self.parse()
 
     def _init_yaml(self) -> None:
-        """Configure a round-trip YAML instance preserving comments and quotes."""
+        """Configure a round-trip YAML instance preserving comments and quotes.
+
+        The emitter is given an unreachable line width so a long scalar is
+        never re-wrapped. Folding one is not a round trip in either direction:
+        it adds a trailing space at the break, and ruamel does not record a
+        plain scalar's own line breaks, so a hand-wrapped value is re-broken at
+        the library's points rather than the author's whatever the width is.
+        """
         self.yaml = YAML(typ="rt")
         self.yaml.preserve_quotes = True
+        self.yaml.width = UNLIMITED_WIDTH
         self._set_indent(DEFAULT_INDENT)
 
     def _set_indent(self, indent: tuple[int, int, int]) -> None:

@@ -561,3 +561,85 @@ def test_detect_indent_ignores_block_scalar_bodies():
 def test_detect_indent_ignores_the_keys_of_a_sequence_entry():
     """`- name: a` is indented by the sequence, so it measures no mapping."""
     assert detect_indent("items:\n  - name: a\n    role: b\n") == (2, 4, 2)
+
+
+# One per row of the table in issue #85, each carrying a value well past
+# ruamel's default width of 80 so a re-dump folds it. `title: plan` is there so
+# re-setting it is a semantic no-op that still forces the re-dump.
+_LONG = "word " * 25 + "end"
+_URL = "https://example.com/" + "a" * 90
+
+LONG_SCALARS = {
+    "plain scalar": f"---\ntitle: plan\nsummary: {_LONG}\n---\n# Doc\n".encode(),
+    "single-quoted scalar": f"---\ntitle: plan\nsummary: '{_LONG}'\n---\n# Doc\n".encode(),
+    "double-quoted scalar": f'---\ntitle: plan\nsummary: "{_LONG}"\n---\n# Doc\n'.encode(),
+    "sequence entry": f"---\ntitle: plan\ntags:\n  - {_LONG}\n---\n# Doc\n".encode(),
+    "sequence entry flush": f"---\ntitle: plan\ntags:\n- {_LONG}\n---\n# Doc\n".encode(),
+    "nested mapping value": f"---\ntitle: plan\nouter:\n  inner: {_LONG}\n---\n# Doc\n".encode(),
+    # Unbreakable: the emitter cannot fold it, so folding only ever moved it to
+    # a line of its own that was over 80 anyway.
+    "unbreakable url": f"---\ntitle: plan\nlink: {_URL}\n---\n# Doc\n".encode(),
+    "long key": ("---\ntitle: plan\n" + "k" * 100 + ": v\n---\n# Doc\n").encode(),
+    "literal block scalar": f"---\ntitle: plan\nbody: |\n  {_LONG}\n---\n# Doc\n".encode(),
+    "folded block scalar": f"---\ntitle: plan\nbody: >\n  {_LONG}\n---\n# Doc\n".encode(),
+    "short values": b"---\ntitle: plan\nsummary: short\n---\n# Doc\n",
+}
+
+
+@pytest.mark.parametrize("name", sorted(LONG_SCALARS))
+def test_long_scalars_survive_a_semantic_no_op(doc, name):
+    """A value the author wrote on one line must come back on one line.
+
+    ruamel folds a plain or quoted scalar at its `width`, 80 by default, so
+    without raising it an upsert that changes nothing still rewraps the block
+    -- and the fold leaves a trailing space behind, which an editor or a
+    `trailing-whitespace` hook then strips, so the two take turns rewriting the
+    same line.
+    """
+    raw = LONG_SCALARS[name]
+    path = doc(raw)
+
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"title": "plan"})
+
+    assert document.write(path) is False
+    assert path.read_bytes() == raw
+
+
+@pytest.mark.parametrize("name", sorted(LONG_SCALARS))
+def test_a_real_edit_leaves_no_trailing_whitespace(doc, name):
+    """The break a fold introduces is what carries the trailing space."""
+    path = doc(LONG_SCALARS[name])
+
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"origin": "deadbeef"})
+    document.write(path)
+
+    written = path.read_text(encoding="utf-8")
+    assert [line for line in written.splitlines() if line != line.rstrip()] == []
+    assert "origin: deadbeef" in written.splitlines()
+
+
+def test_a_hand_wrapped_scalar_is_joined(doc):
+    """The one row that cannot round trip, and does not today either.
+
+    ruamel does not record a plain scalar's own line breaks, so the author's
+    wrapping is lost whatever the width is: at 80 the value is re-broken at the
+    library's points with a trailing space, and here it is joined. Only the
+    second leaves a value that was written on one line on one line, and a
+    folded block scalar is the construct that does keep its breaks.
+    """
+    raw = (
+        b"---\ntitle: plan\nsummary: alpha beta gamma delta epsilon zeta eta theta\n"
+        b"  iota kappa lambda mu nu xi omicron pi rho sigma tau\n---\n# Doc\n"
+    )
+    path = doc(raw)
+
+    document = FrontmatterDocument.from_file(path)
+    document.patch(upsert={"title": "plan"})
+    document.write(path)
+
+    assert path.read_text(encoding="utf-8") == (
+        "---\ntitle: plan\nsummary: alpha beta gamma delta epsilon zeta eta theta"
+        " iota kappa lambda mu nu xi omicron pi rho sigma tau\n---\n# Doc\n"
+    )
