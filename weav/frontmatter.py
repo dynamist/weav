@@ -13,6 +13,20 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import YAMLError
 
+# This module's full public surface. The package's own __all__ in
+# weav/__init__.py is the narrower, curated promise; anything listed here
+# but not there is public but reached one import deeper.
+__all__ = [
+    "BOM",
+    "DEFAULT_INDENT",
+    "EOD_MARKER",
+    "EOF_MARKER",
+    "UNLIMITED_WIDTH",
+    "FrontmatterDocument",
+    "FrontmatterError",
+    "detect_indent",
+]
+
 # YAML spec: `---` ends the directives section, `...` ends the document.
 BOM = "\ufeff"
 EOD_MARKER = "---"

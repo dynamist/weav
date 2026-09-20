@@ -5,6 +5,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, TextIO
 
+# This module's full public surface. The package's own __all__ in
+# weav/__init__.py is the narrower, curated promise; anything listed here
+# but not there is public but reached one import deeper.
+__all__ = [
+    "deep_merge",
+    "load_and_wrap",
+    "mangle_commas",
+    "mangle_keyval",
+]
+
 
 def deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
     """Deep merge two dictionaries, with updates taking precedence.

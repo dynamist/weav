@@ -246,22 +246,85 @@ whose content did not change is not rewritten at all.
 
 ## Programmatic API
 
-weav provides a pluggable data source architecture for programmatic use:
+weav is a library as well as a command. The supported names are exported from
+the top level:
+
+```python
+from weav import FrontmatterDocument, compile_template
+```
+
+Every public name is resolved lazily, so `import weav` pulls in no third-party
+module and costs about a millisecond -- a consumer who only wants
+`FrontmatterDocument` never imports Jinja2. The module holding a name is
+imported the first time the name is touched.
+
+### What weav exports
+
+| | |
+|---|---|
+| Documents | `FrontmatterDocument` |
+| Templates | `compile_template`, `find_template`, `get_template_paths` |
+| Data sources | `ContextBuilder`, `DataSource`, `YamlDataSource`, `JsonDataSource`, `TomlDataSource`, `StdinDataSource`, `ExecDataSource`, `KeyvalDataSource`, `EnvDataSource` |
+| Errors | `FrontmatterError`, `TemplateError`, `DataSourceError` |
+| Utilities | `deep_merge` |
+
+Everything else stays in its own module -- `weav.datasources.parse_data_spec`,
+`weav.utils.mangle_keyval`, `weav.frontmatter.detect_indent` -- because their
+contracts are the CLI's argument grammar or the YAML emitter's internals rather
+than a library API. Submodule imports keep working and are not deprecated;
+`from weav.frontmatter import FrontmatterDocument` is as supported as the short
+form.
+
+### Editing frontmatter programmatically
 
 ```python
 from pathlib import Path
-from weav.datasources import (
-    YamlDataSource,
-    JsonDataSource,
-    TomlDataSource,
+from weav import FrontmatterDocument
+
+doc = FrontmatterDocument.from_file(Path("contract.md"))
+doc.patch(upsert={"origin": "deadbeef"}, delete=["draft"])
+doc.write(Path("contract.md"))
+```
+
+`patch()` reports what it did, as `{"inserted": [...], "updated": [...],
+"deleted": [...]}`, and `write()` returns `False` without touching the file
+when the bytes would not change. A document already in memory goes through the
+constructor instead of `from_file()`:
+
+```python
+doc = FrontmatterDocument(text)
+doc.patch(upsert={"origin": "deadbeef"})
+print(doc.frontmatter["origin"], doc.content, doc.dumps())
+```
+
+The constructor expects text that is already decoded and uses `\n` line
+endings. Unlike `from_file()` it does not strip a byte order mark or fold
+CRLF, so decode with `utf-8-sig` and normalise first if the bytes came from
+somewhere that might carry either.
+
+`doc.frontmatter` is a `ruamel.yaml` `CommentedMap`, which is a `dict` that
+also remembers comments and quoting. Values are mostly what you would expect --
+unquoted scalars come back as plain `str` and `int`, and quoted ones as
+`str` subclasses that compare and serialise normally. The exception worth
+knowing is that an unquoted ISO date becomes a `datetime.date`, so
+`json.dumps(dict(doc.frontmatter))` raises `TypeError` on a document with one;
+quote the value or convert it before serialising.
+
+### Building a context
+
+```python
+from pathlib import Path
+from weav import (
+    ContextBuilder,
     EnvDataSource,
     ExecDataSource,
+    JsonDataSource,
     KeyvalDataSource,
-    ContextBuilder,
+    TomlDataSource,
+    YamlDataSource,
+    compile_template,
 )
-from weav.template import compile_template
 
-# Build context from multiple sources
 builder = ContextBuilder()
 builder.add(YamlDataSource(Path("base.yaml")))
 builder.add(JsonDataSource(Path("override.json")))
@@ -281,16 +344,8 @@ result = compile_template(
 )
 ```
 
-### Editing frontmatter programmatically
-
-```python
-from pathlib import Path
-from weav.frontmatter import FrontmatterDocument
-
-doc = FrontmatterDocument.from_file(Path("contract.md"))
-doc.patch(upsert={"origin": "deadbeef"}, delete=["draft"])
-doc.write(Path("contract.md"))
-```
+`compile_template()` takes the same specification strings the CLI accepts,
+rather than structured arguments.
 
 ### Available Data Sources
 
@@ -303,6 +358,35 @@ doc.write(Path("contract.md"))
 | `KeyvalDataSource` | Load data from key=value strings |
 | `StdinDataSource` | Load data from standard input |
 | `ExecDataSource` | Run a command and load data from its stdout |
+| `DataSource` | The protocol the others satisfy |
+
+`DataSource` is a typing `Protocol` and is not `runtime_checkable`: implement
+it structurally -- a `name` property and a `load()` returning a dict -- rather
+than inheriting from it, and do not use it with `isinstance()`.
+
+### Errors
+
+```python
+from weav import DataSourceError, FrontmatterError, TemplateError
+```
+
+`FrontmatterError` is raised only when a document that opens with `---` has a
+block that will not parse. A document with no frontmatter is not an error.
+
+### Installing weav as a dependency
+
+weav is published to GitHub Releases, not to PyPI, and **the `weav` package on
+PyPI is an unrelated project**. Depend on it by direct reference:
+
+```
+weav @ git+https://github.com/dynamist/weav.git@v0.3.0
+```
+
+`uv pip compile` ignores `[tool.uv.sources]`, so a project that pins weav
+there also needs the direct reference in its requirements input, plus a
+`weav>=0.3.0` floor. Without both, the resolve can silently pick up the
+unrelated PyPI package instead.
+
 
 ## License
 
