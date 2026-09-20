@@ -1,4 +1,4 @@
-# Unreleased
+# 0.4.0 (2026-09-20)
 
 ## New Features
 
@@ -48,7 +48,6 @@
   usually arrives from an HTTP body, a database row or a git blob rather than
   from disk.
 
-
 * **`import weav` no longer fails on a source tree** - `weav/__init__.py` read
   its version from the installed distribution's metadata as it imported, so a
   vendored copy, a checkout that was never installed, or any `sys.path` use
@@ -77,6 +76,7 @@
   that opened a block. Block scalar bodies are skipped, so a `- ` inside a
   literal scalar is not mistaken for a sequence entry. A block that mixes two
   styles is left to the emitter, since matching one would reflow the other.
+  Closes #82.
 
 * **`weav frontmatter` no longer re-wraps long values** - `ruamel.yaml` folds a
   plain or quoted scalar at its default width of 80 columns, so a value the
@@ -92,7 +92,7 @@
   round tripped at either width, so a hand-wrapped value is joined now where it
   used to be re-broken at the library's points rather than the author's. A
   folded block scalar (`>`) is the construct that does keep its breaks, and one
-  whose lines run past 80 now round trips too.
+  whose lines run past 80 now round trips too. Closes #85.
 
 
 # 0.3.0 (2026-09-19)
