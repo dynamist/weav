@@ -214,8 +214,8 @@ agent that only reads `--help` still finds it.
 ## Editing frontmatter
 
 `weav frontmatter` adds, changes and removes keys in a document's YAML
-frontmatter block, preserving comments, quoting, block scalars and the
-document's own indentation.
+frontmatter block, preserving comments, quoting, block scalars, the document's
+own indentation and its long values, which are never re-wrapped.
 
 ```bash
 # Stamp a document with the commit it was derived from

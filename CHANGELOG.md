@@ -16,8 +16,21 @@
   literal scalar is not mistaken for a sequence entry. A block that mixes two
   styles is left to the emitter, since matching one would reflow the other.
 
-  Long plain scalars are still folded at column 80 on a re-dump, which is the
-  same class of unasked-for rewrite and is not addressed here.
+* **`weav frontmatter` no longer re-wraps long values** - `ruamel.yaml` folds a
+  plain or quoted scalar at its default width of 80 columns, so a value the
+  author wrote on one line came back wrapped, with a **trailing space** on the
+  line the fold broke. An editor that strips trailing whitespace on save, or a
+  `trailing-whitespace` pre-commit hook, takes that space straight back out, so
+  the two then take turns rewriting the same line.
+
+  The emitter is given a line width no real line reaches, so a long value is
+  emitted as it was written however long it is. A document has no width the way
+  it has an indentation style, so there is nothing to measure and the setting is
+  unconditional. Nothing is lost by it: a plain scalar's own line breaks are not
+  round tripped at either width, so a hand-wrapped value is joined now where it
+  used to be re-broken at the library's points rather than the author's. A
+  folded block scalar (`>`) is the construct that does keep its breaks, and one
+  whose lines run past 80 now round trips too.
 
 
 # 0.3.0 (2026-09-19)

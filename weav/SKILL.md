@@ -267,6 +267,12 @@ two styles, or that indents its mappings inconsistently, is emitted in the
 library's own style -- the dash in its key's column, a nested mapping two in --
 because no single setting can preserve both.
 
+Long values are never re-wrapped, so a value written on one line stays on one
+line however long it is. The one thing that does not survive is a plain scalar
+that was hand-wrapped over several lines: YAML joins those into one value and
+the break points are not recorded, so it comes back joined. Use a folded block
+scalar (`>`) for a long value that should stay wrapped.
+
 Upserted values are always written as strings, so `--upsert count=1` produces
 `count: '1'`, not an integer. Edit the file yourself when you need a typed
 scalar, a nested key or a list -- `--upsert` only sets top-level string keys.
