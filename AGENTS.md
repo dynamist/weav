@@ -43,6 +43,60 @@ gh pr merge --rebase --delete-branch
 
 ## Architecture
 
+### Public API (`__init__.py`)
+- The package's `__all__` is the **promise**: 18 names covering documents,
+  templates, data sources, the three exception types and `deep_merge`. Each
+  submodule carries its own `__all__` listing its *full* public surface. A name
+  in a module's `__all__` but not the package's is public and reached one import
+  deeper -- `parse_data_spec`, `mangle_keyval`, `detect_indent` and the emitter
+  constants are all deliberately in that tier, because their contracts are the
+  CLI's argument grammar or ruamel's emitter rather than a library API
+- Names resolve through a PEP 562 module `__getattr__` against `_LAZY`, which
+  maps name to defining module; `_SUBMODULES` resolves `weav.frontmatter` and
+  friends as attributes, and `__dir__` offers both to the REPL. Resolved values
+  are cached into `globals()`, so `__getattr__` runs once per name
+- **Do not turn this into eager imports.** Two separate reasons: eager
+  re-exports take `import weav` from ~10ms to ~800ms and pull in jinja2, ruamel
+  and platformdirs for a consumer who only wants `FrontmatterDocument`; and
+  `weav/cli.py` sets `os.environ["TYPER_USE_RICH"] = "0"` as it imports, so
+  `cli` and `agents` must stay out of `_SUBMODULES` -- touching an attribute on
+  `weav` must never mutate the process environment. `tests/test_public_api.py`
+  asserts both, out of process, because by the time the rest of the suite runs
+  everything is already in `sys.modules`
+- `__version__` is lazy too. `importlib.metadata.version()` parses installed
+  distribution metadata and was ~65ms of weav's ~92ms import -- the entire cost
+  for a library consumer. It falls back to `0.0.0+unknown` rather than raising,
+  so a vendored or never-installed tree stays importable; `scripts/smoke.py`
+  rejects that string, so a release artifact that lost its dist-info still fails
+- **Three places list the same names** -- `__all__`, `_LAZY`, and the
+  `TYPE_CHECKING` import block -- and all three are load-bearing. `__all__` must
+  be literal strings, because ruff cannot see a computed one and flags the
+  TYPE_CHECKING imports as F401. mypy's `no_implicit_reexport` (implied by
+  `strict`) refuses to re-export a name missing from `__all__`. And a name in
+  `__all__` and TYPE_CHECKING but missing from `_LAZY` type checks perfectly
+  while raising `AttributeError` at runtime -- which is why
+  `tests/test_public_api.py` parses this file with `ast` and asserts the
+  TYPE_CHECKING block equals `_LAZY`. That specific failure was verified to pass
+  `mypy weav` and be caught only by that test
+- `__getattr__` returns **`object`, not `Any`**. `Any` would need a
+  `# noqa: ANN401` (ANN401 fires on returns, not just arguments) and would make
+  a consumer's typo silently well-typed; `object` fails at the point of use.
+  Correct names keep their real types from the TYPE_CHECKING block either way.
+  The residual trade-off is that unknown attribute access on `weav` types as
+  `object` rather than erroring; a `.pyi` stub would close that but duplicates
+  the surface in a file that can drift
+- PyInstaller's module graph cannot follow `import_module(<variable>)`, so
+  `_LAZY` is invisible to it. The frozen builds are whole only because `cli.py`
+  imports every module eagerly -- a module that lands in `_LAZY` without a
+  `cli.py` import needs a `--hidden-import` in the release workflow
+- `typer` and `rich` stay unconditional runtime dependencies rather than moving
+  behind a `[cli]` extra. `[project.scripts]` installs unconditionally while
+  extras do not, so `pip install weav` would ship a `weav` command that dies on
+  `import typer`. The import-time cost is already solved by the laziness above;
+  what an extra would save is install weight, dominated by pygments, which is
+  rich's dependency rather than weav's. Revisit only if weav is published to
+  PyPI. See dynamist/weav#89
+
 ### CLI Layer (`cli.py`)
 - Uses `typer` for argument parsing with type-annotated function signatures
 - Two commands: `weav render TEMPLATE [OPTIONS]` and `weav frontmatter FILE [OPTIONS]`
@@ -181,6 +235,13 @@ from importlib.metadata import version
 
 version("weav")
 ```
+
+`weav.__version__` is resolved on first access rather than at import, and falls
+back to `0.0.0+unknown` when there is no distribution metadata to read -- see
+the Public API section above. The two forms therefore differ on an uninstalled
+source tree: `version("weav")` still raises `PackageNotFoundError` there, and
+`weav.__version__` does not. `scripts/smoke.py` rejects the fallback string, so
+a built artifact missing its metadata is still caught.
 
 ## Dependency Updates
 

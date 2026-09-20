@@ -24,6 +24,26 @@ from ruamel.yaml.error import YAMLError
 
 from weav.utils import deep_merge, load_and_wrap, mangle_keyval
 
+# This module's full public surface. The package's own __all__ in
+# weav/__init__.py is the narrower, curated promise; anything listed here
+# but not there is public but reached one import deeper.
+__all__ = [
+    "FORMATS",
+    "ContextBuilder",
+    "DataSource",
+    "DataSourceError",
+    "EnvDataSource",
+    "ExecDataSource",
+    "JsonDataSource",
+    "KeyvalDataSource",
+    "StdinDataSource",
+    "TomlDataSource",
+    "YamlDataSource",
+    "build_sources_from_args",
+    "get_parser",
+    "parse_data_spec",
+]
+
 
 class DataSourceError(Exception):
     """Error raised when a data source fails to produce data."""

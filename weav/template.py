@@ -11,6 +11,16 @@ from jinja2.loaders import FileSystemLoader
 
 from weav.datasources import ContextBuilder, build_sources_from_args
 
+# This module's full public surface. The package's own __all__ in
+# weav/__init__.py is the narrower, curated promise; anything listed here
+# but not there is public but reached one import deeper.
+__all__ = [
+    "TemplateError",
+    "compile_template",
+    "find_template",
+    "get_template_paths",
+]
+
 
 class TemplateError(Exception):
     """Error raised when template operations fail."""

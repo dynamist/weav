@@ -18,11 +18,22 @@ line was tried, and the resulting binary passes every check here but `--skill`.
     python scripts/smoke.py --venv /tmp/fresh-venv
     python scripts/smoke.py --venv .venv --expect-version 0.3.0rc1
 
+weav is also a library, and --venv adds a check for that: the wheel has to
+import and resolve every name in weav.__all__ without dragging in jinja2 or
+typer. Note that weav/__init__.py reaches its modules through
+import_module(<variable>), which PyInstaller's module graph cannot follow --
+the frozen builds are whole only because weav/cli.py imports every module
+eagerly. A module that lands in _LAZY without a cli.py import needs a
+--hidden-import in the release workflow, and nothing here would catch its
+absence: the library check runs for --venv only, and the CLI checks exercise a
+module only if a command happens to reach it.
+
 Deliberately imports nothing outside the standard library: it has to run on a
 bare CI runner, before anything has been installed for it.
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -38,6 +49,10 @@ COMMANDS = ["render", "frontmatter"]
 # depends on how weav was installed, so only require that it looks like a
 # version and compare with canonical_version() rather than as strings.
 VERSION_PATTERN = re.compile(r"^weav (\d+\.\d+[0-9A-Za-z.\-+]*)$")
+
+# What weav/__init__.py reports when importlib.metadata has no weav to find.
+# Importable, but never a real release artifact -- see check_version.
+NO_METADATA_VERSION = "0.0.0+unknown"
 
 # A frozen build that lost a module says so in a traceback and still exits
 # non-zero, which a "did it fail?" check alone would accept.
@@ -67,6 +82,26 @@ def resolve_executable(args) -> Path:
             return candidate.resolve()
 
     sys.exit(f"no weav console script in venv: {args.venv}")
+
+
+def resolve_python(venv) -> Path:
+    """The interpreter inside `venv`, for the library-import check.
+
+    Absolute but deliberately *not* resolved, unlike resolve_executable:
+    `bin/python` is a symlink to the base interpreter, and following it lands
+    outside the venv, where sys.prefix no longer finds pyvenv.cfg and the
+    venv's site-packages is never added to sys.path. The check would then fail
+    with ModuleNotFoundError on a wheel that installed perfectly.
+
+    .absolute() rather than .resolve() for that reason -- ruff's PTH100 will
+    push you back towards resolve(); do not take it here.
+    """
+    for relative in ("bin/python", "Scripts/python.exe", "Scripts/python"):
+        candidate = Path(venv).joinpath(*relative.split("/"))
+        if candidate.is_file():
+            return candidate.absolute()
+
+    sys.exit(f"no python in venv: {venv}")
 
 
 def smoke_env(home: Path) -> dict:
@@ -157,17 +192,25 @@ def canonical_version(version: str) -> str:
 def check_version(executable, home, timeout, expected):
     """--version is the check a broken build fails first.
 
-    weav/__init__.py runs importlib.metadata.version("weav") at import time, so
-    a build that did not carry the distribution metadata raises
-    PackageNotFoundError before typer ever parses an argument, and the binary
-    cannot start at all. Reaching this output also means typer, rich and the
-    whole eager import graph under weav/cli.py were bundled.
+    A build that did not carry the distribution metadata used to raise
+    PackageNotFoundError at import and could not start at all. weav/__init__.py
+    now falls back to NO_METADATA_VERSION instead, so that a vendored or
+    never-installed source tree stays importable as a library -- which means
+    the exception is no longer the signal here and the string is. A release
+    artifact has its metadata or it is broken, so reject the fallback outright:
+    it matches VERSION_PATTERN, and a run without --expect-version would
+    otherwise go green on a build that lost its dist-info.
+
+    Reaching this output also means typer, rich and the whole eager import
+    graph under weav/cli.py were bundled.
     """
     output = expect_success(executable, ["--version"], home, timeout).strip()
 
     match = VERSION_PATTERN.match(output)
     if not match:
         raise CheckError(f"not a version: {output!r}")
+    if match.group(1) == NO_METADATA_VERSION:
+        raise CheckError("reported the no-metadata fallback -- the build lost its dist-info")
     if expected and canonical_version(match.group(1)) != canonical_version(expected):
         raise CheckError(f"reported {output!r}, expected {expected!r}")
 
@@ -266,6 +309,57 @@ def program_name(executable, home, timeout):
         # Not fatal on its own -- check_help reports a broken --help.
         return executable.name
     return match.group(1)
+
+
+# Run inside the venv's own interpreter. Kept as one program so the whole
+# library contract is one subprocess: the front door opens, the version is
+# real, every promised name resolves, and nothing heavy came along for the ride.
+LIBRARY_PROGRAM = """
+import json, sys
+import weav
+
+banned = [n for n in ("jinja2", "typer", "rich") if n in sys.modules]
+missing = [n for n in weav.__all__ if not hasattr(weav, n)]
+json.dump(
+    {"version": weav.__version__, "banned": banned, "missing": missing,
+     "names": len(weav.__all__)},
+    sys.stdout,
+)
+"""
+
+
+def check_library_import(python, home, timeout):
+    """`import weav` works, promises what it says, and stays cheap.
+
+    The unit tests cover this against the source tree; this covers it against
+    the artifact a consumer actually installs. It is the only check that treats
+    weav as a library rather than a command, so it is what would catch a
+    hatchling build that stopped shipping a module, a py.typed that went
+    missing, or a dependency only the library path needs going undeclared --
+    none of which the CLI checks can see.
+
+    Venv only: a one-file executable has no interpreter to drive, and is not a
+    library consumer.
+    """
+    code, out, err = run(python, ["-c", LIBRARY_PROGRAM], home, timeout)
+    if code != 0:
+        raise CheckError(f"import weav failed\n{indent(out + err)}")
+
+    try:
+        result = json.loads(out)
+    except json.JSONDecodeError as broken:
+        raise CheckError(f"no result\n{indent(out + err)}") from broken
+
+    if result["missing"]:
+        raise CheckError(f"__all__ promises names that do not resolve: {result['missing']}")
+    if result["version"] == NO_METADATA_VERSION:
+        raise CheckError("imported, but the distribution metadata is missing")
+    if result["banned"]:
+        # Not fatal to a consumer, but the whole point of the lazy __getattr__
+        # in weav/__init__.py is that this list stays empty.
+        raise CheckError(f"a bare `import weav` pulled in {', '.join(result['banned'])}")
+
+    return f"{result['names']} names, nothing eager"
 
 
 def check_completion(executable, home, timeout):
@@ -435,6 +529,14 @@ def main() -> int:
     checks += [(f"{command} --help", bind(check_command_help, command)) for command in COMMANDS]
     checks += [
         ("--skill", bind(check_skill)),
+    ]
+    if args.venv:
+        # Only a venv has an interpreter to import weav with.
+        python = resolve_python(args.venv)
+        checks += [
+            ("library import", lambda home: check_library_import(python, home, args.timeout)),
+        ]
+    checks += [
         ("shell completion", bind(check_completion)),
         ("render by name", bind(check_render_search_path)),
         ("render by path", bind(check_render_json)),

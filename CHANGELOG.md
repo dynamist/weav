@@ -1,6 +1,44 @@
 # Unreleased
 
+## New Features
+
+* **weav is usable as a library** - the programmatic surface is exported from
+  the top level, so `from weav import FrontmatterDocument, compile_template`
+  works without knowing the module layout. `__all__` is the supported promise:
+  `FrontmatterDocument`, `compile_template`, `find_template`,
+  `get_template_paths`, `ContextBuilder`, `DataSource`, the seven data source
+  classes, `FrontmatterError`, `TemplateError`, `DataSourceError`, `deep_merge`
+  and `__version__`. Each module also gained its own `__all__` covering its full
+  public surface; a name listed there but not at the top level - the
+  `[KEY][:FORMAT]=SOURCE` spec parser, the argv mangling, the YAML indentation
+  machinery - is still public and still importable from its module, just not
+  part of the narrower promise. Existing submodule imports are unchanged and are
+  not deprecated.
+
+  The names are resolved lazily (PEP 562), so `import weav` pulls in no
+  third-party module at all and costs about a millisecond rather than ninety.
+  The module holding a name is imported the first time the name is touched,
+  which means a consumer of `FrontmatterDocument` alone never imports Jinja2,
+  and nothing that merely touches an attribute on `weav` can trip the
+  `TYPER_USE_RICH` environment variable that `weav/cli.py` sets as it imports.
+  Closes #90.
+
 ## Bug Fixes
+
+* **`import weav` no longer fails on a source tree** - `weav/__init__.py` read
+  its version from the installed distribution's metadata as it imported, so a
+  vendored copy, a checkout that was never installed, or any `sys.path` use
+  raised `PackageNotFoundError` before the package existed. The version is now
+  read on first access and falls back to `0.0.0+unknown` when there is no
+  metadata to read.
+
+  The fallback is not allowed to hide a broken build: `scripts/smoke.py`
+  rejects that exact string, because it matches the version pattern and a
+  release artifact that lost its `dist-info` would otherwise pass a smoke run
+  that was not given `--expect-version`. That script also gained a library
+  import check, run against the wheel installed into a clean venv, asserting
+  that every name in `__all__` resolves and that a bare `import weav` pulls in
+  neither Jinja2 nor typer. Closes #88.
 
 * **`weav frontmatter` keeps the document's own indentation** - An edit no
   longer flattens an indented block sequence or renormalises a mapping indented
