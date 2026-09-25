@@ -42,6 +42,16 @@ def test_render_template_not_found():
     assert "Error" in result.stdout or "Error" in result.stderr
 
 
+def test_render_broken_template_is_an_error_not_a_traceback(tmp_path):
+    """A template that fails to compile exits 1 with a message, not a crash."""
+    template = tmp_path / "bad.j2"
+    template.write_text("{{ x | nosuchfilter }}")
+    result = runner.invoke(app, [str(template)])
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "nosuchfilter" in result.stderr
+
+
 def test_render_data_file_not_found(tmp_path):
     """Test the render command with non-existent data file."""
     template = tmp_path / "test.j2"

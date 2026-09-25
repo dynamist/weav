@@ -374,6 +374,13 @@ from weav import DataSourceError, FrontmatterError, TemplateError
 `FrontmatterError` is raised only when a document that opens with `---` has a
 block that will not parse. A document with no frontmatter is not an error.
 
+`TemplateError` covers every way Jinja2 can fail a template: not found,
+malformed, an unknown filter, an undefined variable, a missing include. The
+Jinja2 exception is kept as `__cause__`, so there is no need to import or catch
+`jinja2` alongside it. An exception raised by the template's own expressions,
+such as `ZeroDivisionError` from `{{ 1 / 0 }}`, is not wrapped and propagates
+as itself.
+
 ### Installing weav as a dependency
 
 weav is published to GitHub Releases, not to PyPI, and **the `weav` package on

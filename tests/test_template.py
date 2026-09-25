@@ -1,5 +1,6 @@
 """Tests for the template module."""
 
+import jinja2
 import pytest
 from weav.template import (
     TemplateError,
@@ -21,6 +22,44 @@ def test_find_template_not_found():
     """Test that TemplateError is raised for non-existent template."""
     with pytest.raises(TemplateError, match="not found"):
         find_template("nonexistent_template.j2")
+
+
+def test_find_template_does_not_compile(tmp_path, monkeypatch):
+    """Search-path lookup finds a broken template rather than parsing it."""
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "templates" / "broken.j2").write_text("{% for %}")
+    monkeypatch.chdir(tmp_path)
+    _loader, name = find_template("broken.j2")
+    assert name == "broken.j2"
+
+
+# Every jinja2 failure while compiling or rendering must arrive as
+# weav.TemplateError -- the documented contract -- with the original as cause.
+@pytest.mark.parametrize(
+    ("body", "cause", "message"),
+    [
+        ("{% for %}", jinja2.TemplateSyntaxError, "line 1"),
+        ("\n\n{{ x | nosuchfilter }}", jinja2.TemplateAssertionError, "line 3"),
+        ("{{ nope.missing }}", jinja2.UndefinedError, "'nope' is undefined"),
+        ("{% include 'absent.j2' %}", jinja2.TemplateNotFound, "absent.j2"),
+    ],
+    ids=["syntax", "assertion", "undefined", "missing-include"],
+)
+def test_compile_template_wraps_jinja2_errors(tmp_path, body, cause, message):
+    template = tmp_path / "bad.md.j2"
+    template.write_text(body)
+    with pytest.raises(TemplateError, match=message) as excinfo:
+        compile_template(str(template), [], [])
+    assert type(excinfo.value.__cause__) is cause
+    assert "bad.md.j2" in str(excinfo.value)
+
+
+def test_compile_template_lets_python_errors_through(tmp_path):
+    """Only jinja2's own errors are wrapped; template code raising is not."""
+    template = tmp_path / "div.j2"
+    template.write_text("{{ 1 / 0 }}")
+    with pytest.raises(ZeroDivisionError):
+        compile_template(str(template), [], [])
 
 
 def test_compile_template_basic(tmp_path):

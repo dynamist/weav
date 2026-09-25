@@ -6,7 +6,8 @@ import importlib.resources
 from pathlib import Path
 
 import platformdirs
-from jinja2 import Environment, TemplateNotFound
+from jinja2 import Environment, TemplateNotFound, TemplateSyntaxError
+from jinja2 import TemplateError as Jinja2TemplateError
 from jinja2.loaders import FileSystemLoader
 
 from weav.datasources import ContextBuilder, build_sources_from_args
@@ -85,11 +86,10 @@ def find_template(name: str) -> tuple[FileSystemLoader, str]:
     searching = get_template_paths()
     loader = FileSystemLoader(searching)
     try:
-        # Test if template exists by trying to get it
-        # S701: _autoescape enables escaping for HTML/XML templates; unlike
-        # select_autoescape it also recognizes them behind a .j2 suffix
-        env = Environment(autoescape=_autoescape, loader=loader)  # noqa: S701
-        env.get_template(name)
+        # Only look the template up; compiling it here would raise jinja2's
+        # own exceptions from a lookup, and compile_template() compiles anyway.
+        # get_source() requires an environment but FileSystemLoader ignores it
+        loader.get_source(Environment(autoescape=True), name)
         return (loader, name)
     except TemplateNotFound as exc:
         available = loader.list_templates()
@@ -124,7 +124,11 @@ def compile_template(
         Rendered template string
 
     Raises:
-        TemplateError: If template compilation fails
+        TemplateError: If the template is not found, or jinja2 fails to
+            compile or render it (a syntax error, an unknown filter, an
+            undefined variable, a missing include). The jinja2 exception is
+            chained as ``__cause__``. Exceptions raised by the template's own
+            expressions, such as ``ZeroDivisionError``, are not wrapped.
         DataSourceError: If a data source fails to produce data
     """
     # Find and load the template
@@ -132,10 +136,31 @@ def compile_template(
     # S701: _autoescape enables escaping for HTML/XML templates; unlike
     # select_autoescape it also recognizes them behind a .j2 suffix
     env = Environment(autoescape=_autoescape, trim_blocks=True, loader=loader)  # noqa: S701
-    template = env.get_template(tpl_name)
+    try:
+        template = env.get_template(tpl_name)
+    except Jinja2TemplateError as exc:
+        raise _wrap(tpl_name, exc) from exc
 
-    # Build data sources from CLI arguments and merge them
+    # Build data sources from CLI arguments and merge them; kept outside the
+    # render guard so a data source's own error is not relabelled
     sources = build_sources_from_args(data_files, keyvals, env_prefixes, exec_commands)
     context = ContextBuilder(sources).build(verbose=verbose)
 
-    return template.render(**context)
+    try:
+        return template.render(**context)
+    except Jinja2TemplateError as exc:
+        raise _wrap(tpl_name, exc) from exc
+
+
+def _wrap(tpl_name: str, exc: Jinja2TemplateError) -> TemplateError:
+    """Describe a jinja2 failure as a weav TemplateError.
+
+    Only a syntax error carries its location as attributes; a render-time
+    error's line lives in jinja2's rewritten traceback, which is not API.
+    """
+    if isinstance(exc, TemplateSyntaxError):
+        where = exc.name or tpl_name
+        return TemplateError(f"Template '{where}', line {exc.lineno}: {exc.message}")
+    if isinstance(exc, TemplateNotFound):
+        return TemplateError(f"Template '{tpl_name}' references '{exc.name}', which was not found")
+    return TemplateError(f"Template '{tpl_name}': {exc.message or exc}")
