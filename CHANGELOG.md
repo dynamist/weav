@@ -1,5 +1,18 @@
 # Unreleased
 
+## Bug Fixes
+
+* **`compile_template()` raises `TemplateError` for a broken template, as
+  documented** - only the lookup was wrapped. A syntax error, an unknown filter,
+  an undefined variable or a missing include escaped as a raw `jinja2`
+  exception, so a caller catching `weav.TemplateError` did not catch it, and
+  `weav render` printed a traceback instead of an error message. Every
+  `jinja2.TemplateError` is now converted, with the original as `__cause__` and
+  the template name (and, for a syntax error, the line) in the message.
+  `find_template()` also stops compiling what it finds, so it can no longer
+  raise a `jinja2` exception from a lookup. An exception raised by the
+  template's own expressions is still not wrapped. Closes #95.
+
 
 # 0.4.0 (2026-09-20)
 
