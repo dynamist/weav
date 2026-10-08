@@ -1,0 +1,5 @@
+{
+  "excludeAuthors": ["renovate[bot]"],
+  "autoReview": ["open", "push", "rebase"],
+  "ignorePatterns": "uv.lock"
+}
