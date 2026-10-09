@@ -265,7 +265,7 @@ imported the first time the name is touched.
 | Documents | `FrontmatterDocument` |
 | Templates | `compile_template`, `find_template`, `get_template_paths` |
 | Data sources | `ContextBuilder`, `DataSource`, `YamlDataSource`, `JsonDataSource`, `TomlDataSource`, `StdinDataSource`, `ExecDataSource`, `KeyvalDataSource`, `EnvDataSource` |
-| Errors | `FrontmatterError`, `TemplateError`, `DataSourceError` |
+| Errors | `FrontmatterError`, `DuplicateKeyError`, `TemplateError`, `DataSourceError` |
 | Utilities | `deep_merge` |
 
 Everything else stays in its own module -- `weav.datasources.parse_data_spec`,
@@ -373,6 +373,25 @@ from weav import DataSourceError, FrontmatterError, TemplateError
 
 `FrontmatterError` is raised only when a document that opens with `---` has a
 block that will not parse. A document with no frontmatter is not an error.
+It carries `line` and `column`, 1-based and counted from the top of the
+document, opening `---` included -- the position an editor shows -- and
+`problem`, a one-line description. Either position is `None` when the YAML
+parser reported none. `str()` is the parser's full message.
+
+A key that appears twice in the same mapping, at any depth, raises
+`DuplicateKeyError`, a subclass of `FrontmatterError`. It adds `key`, as spelled
+in the source, and `first_line`, the line of the key it repeats. A duplicate is
+refused rather than resolved, because last-value-wins would load the document
+with the wrong value in it.
+
+```python
+from weav import DuplicateKeyError, FrontmatterDocument
+
+try:
+    FrontmatterDocument.from_file(path)
+except DuplicateKeyError as exc:
+    print(f"{path}:{exc.line}: {exc.key!r} is already set on line {exc.first_line}")
+```
 
 `TemplateError` covers every way Jinja2 can fail a template: not found,
 malformed, an unknown filter, an undefined variable, a missing include. The

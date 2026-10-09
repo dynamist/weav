@@ -1,11 +1,13 @@
 """Tests for the frontmatter parsing and editing module."""
 
+import pickle
 import sys
 
 import pytest
 from weav.frontmatter import (
     BOM,
     DEFAULT_INDENT,
+    DuplicateKeyError,
     FrontmatterDocument,
     FrontmatterError,
     detect_indent,
@@ -256,6 +258,93 @@ def test_malformed_frontmatter_raises_and_leaves_the_file_alone(doc):
     with pytest.raises(FrontmatterError):
         FrontmatterDocument.from_file(path)
     assert path.read_bytes() == BAD_MISSING_COLON
+
+
+# (document, key, line, column, first_line). Lines and columns are 1-based and
+# count the opening `---`, so they match what an editor shows.
+DUPLICATES = {
+    "top level": ("---\ntitle: A\nstatus: Rolling\ntitle: B\n---\n", "title", 4, 1, 2),
+    "nested": ("---\nmeta:\n  a: 1\n  a: 2\n---\n", "a", 4, 3, 3),
+    "flow mapping": ("---\nm: {a: 1, a: 2}\n---\n", "a", 2, 11, 2),
+    "sequence entry": ("---\nl:\n  - a: 1\n    a: 2\n---\n", "a", 4, 5, 3),
+    "after an alias": ("---\nd: &d {x: 1}\ne: *d\nf:\n  y: 1\n  y: 2\n---\n", "y", 6, 3, 5),
+    "merge key": ("---\nb: &b {x: 1}\nm:\n  <<: *b\n  <<: *b\n---\n", "<<", 5, 3, 4),
+    # Keys collide by value; the reported key is the second spelling.
+    "same int": ("---\n1: x\n0x1: y\n---\n", "0x1", 3, 1, 2),
+    "sequence key": ("---\n[a, b]: 1\n[a, b]: 2\n---\n", "[a, b]", 3, 1, 2),
+    "same null": ("---\nnull: x\n~: y\n---\n", "~", 3, 1, 2),
+    # The BOM and CRLF are stripped before parsing and must not shift a line.
+    "bom and crlf": ("\ufeff---\r\ntitle: A\r\ntitle: B\r\n---\r\n", "title", 3, 1, 2),
+}
+
+
+@pytest.mark.parametrize(
+    ("text", "key", "line", "column", "first_line"),
+    DUPLICATES.values(),
+    ids=DUPLICATES.keys(),
+)
+def test_a_duplicate_key_is_refused(text, key, line, column, first_line):
+    """Last-value-wins would convert the document with the wrong value in it."""
+    with pytest.raises(DuplicateKeyError) as excinfo:
+        FrontmatterDocument(text)
+    error = excinfo.value
+    assert (error.key, error.line, error.column, error.first_line) == (
+        key,
+        line,
+        column,
+        first_line,
+    )
+    assert error.problem is not None
+    assert isinstance(error, FrontmatterError)
+    assert str(error).startswith("invalid YAML frontmatter: ")
+
+
+def test_a_duplicate_key_leaves_the_file_alone(doc):
+    raw = b"---\ntitle: A\ntitle: B\n---\n# Manifesto\n"
+    path = doc(raw)
+    with pytest.raises(DuplicateKeyError):
+        FrontmatterDocument.from_file(path)
+    assert path.read_bytes() == raw
+
+
+def test_overriding_a_merged_key_is_not_a_duplicate():
+    document = FrontmatterDocument("---\nb: &b {x: 1}\nm:\n  <<: *b\n  x: 2\n---\n")
+    assert document.frontmatter["m"]["x"] == 2
+
+
+def test_a_syntax_error_carries_its_position(doc):
+    with pytest.raises(FrontmatterError) as excinfo:
+        FrontmatterDocument.from_file(doc(BAD_MISSING_COLON))
+    error = excinfo.value
+    assert type(error) is FrontmatterError
+    # ruamel marks where it gave up on the key: the closing `---`.
+    assert (error.line, error.column) == (4, 1)
+    assert error.problem == "could not find expected ':'"
+
+
+def test_a_bad_character_carries_its_position():
+    """A reader error has an offset rather than a mark; it still gets a line."""
+    with pytest.raises(FrontmatterError) as excinfo:
+        FrontmatterDocument("---\na: 1\nb: x\x07y\n---\n")
+    assert (excinfo.value.line, excinfo.value.column) == (3, 5)
+    assert "#x0007" in excinfo.value.problem
+
+
+def test_the_position_fields_default_to_none():
+    error = FrontmatterError("boom")
+    assert (str(error), error.line, error.column, error.problem) == ("boom", None, None, None)
+
+
+@pytest.mark.parametrize("text", [DUPLICATES["nested"][0], BAD_MISSING_COLON.decode()])
+def test_errors_survive_pickling(text):
+    """DuplicateKeyError requires `key`, which the default reduce would drop."""
+    with pytest.raises(FrontmatterError) as excinfo:
+        FrontmatterDocument(text)
+    error = excinfo.value
+    clone = pickle.loads(pickle.dumps(error))  # noqa: S301 -- our own bytes
+    assert type(clone) is type(error)
+    assert vars(clone) == vars(error)
+    assert str(clone) == str(error)
 
 
 def test_no_leading_marker_is_never_fatal(doc):

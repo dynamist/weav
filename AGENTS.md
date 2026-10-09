@@ -44,8 +44,8 @@ gh pr merge --rebase --delete-branch
 ## Architecture
 
 ### Public API (`__init__.py`)
-- The package's `__all__` is the **promise**: 18 names covering documents,
-  templates, data sources, the three exception types and `deep_merge`. Each
+- The package's `__all__` is the **promise**: 19 names covering documents,
+  templates, data sources, the exception types and `deep_merge`. Each
   submodule carries its own `__all__` listing its *full* public surface. A name
   in a module's `__all__` but not the package's is public and reached one import
   deeper -- `parse_data_spec`, `mangle_keyval`, `detect_indent` and the emitter
@@ -156,7 +156,18 @@ gh pr merge --rebase --delete-branch
 ### Frontmatter Layer (`frontmatter.py`)
 - `FrontmatterDocument` - a document split into a YAML mapping and a body;
   `from_file()`, `parse()`, `patch()`, `dumps()`, `write()`
-- `FrontmatterError` - raised only when a declared block fails to parse
+- `FrontmatterError` - raised only when a declared block fails to parse;
+  carries `line`/`column` (1-based, counted in the document as given, opening
+  `---` included) and `problem`, so a caller never parses ruamel's wording.
+  ruamel counts from 0 inside the block, because it is handed the block without
+  its delimiter; only weav knows the offset
+- `DuplicateKeyError(FrontmatterError)` - a repeated key at any depth, with
+  `key` and `first_line`. Refusing duplicates is weav's contract, so
+  `allow_duplicate_keys = False` is set explicitly even though it is ruamel's
+  default. ruamel's own exception names the key only in its message text, so
+  `_find_duplicate()` re-composes the failed block (composing does not check
+  duplicates; constructing does) and finds the key node at the error mark --
+  do not replace that with a regex over the message
 - Uses `ruamel.yaml` in round-trip mode (`YAML(typ="rt")`, `preserve_quotes`) so
   comments, quoting and block scalars survive an edit. Dumps via `io.StringIO`;
   the `ruamel.yaml.string` package is deliberately **not** a dependency.

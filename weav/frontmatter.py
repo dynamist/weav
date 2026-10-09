@@ -11,7 +11,10 @@ from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
-from ruamel.yaml.error import YAMLError
+from ruamel.yaml.constructor import DuplicateKeyError as _BackendDuplicateKeyError
+from ruamel.yaml.error import MarkedYAMLError, YAMLError
+from ruamel.yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
+from ruamel.yaml.reader import ReaderError
 
 # This module's full public surface. The package's own __all__ in
 # weav/__init__.py is the narrower, curated promise; anything listed here
@@ -22,6 +25,7 @@ __all__ = [
     "EOD_MARKER",
     "EOF_MARKER",
     "UNLIMITED_WIDTH",
+    "DuplicateKeyError",
     "FrontmatterDocument",
     "FrontmatterError",
     "detect_indent",
@@ -135,7 +139,161 @@ def _column(line: str) -> int:
 
 
 class FrontmatterError(Exception):
-    """Raised when a document's YAML frontmatter cannot be parsed."""
+    """Raised when a document's YAML frontmatter cannot be parsed.
+
+    `line` and `column` are 1-based and count from the top of the document as
+    given, opening `---` included, so they are what the author's editor shows.
+    Only weav can report that: the YAML backend is handed the block without its
+    delimiter and counts from 0 inside it. Both are None when the backend gave
+    no position, rather than guessed. `problem` is the backend's one-line
+    description, such as "could not find expected ':'".
+
+    str() is the full backend message, as it always was.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        line: int | None = None,
+        column: int | None = None,
+        problem: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.line = line
+        self.column = column
+        self.problem = problem
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        # The default reduce calls cls(*args), which would drop the keyword-only
+        # fields of a subclass that requires one -- DuplicateKeyError's `key`.
+        return (_restore_error, (type(self), self.args, self.__dict__))
+
+
+class DuplicateKeyError(FrontmatterError):
+    """A key appears more than once in the same mapping, at any depth.
+
+    weav refuses these on purpose rather than letting the last value win: the
+    document would still convert, with the wrong value in it.
+
+    `key` is the repeated key as spelled in the source -- `0x1`, not `1` -- and
+    `first_line` is the line of the key it repeats. A repeated merge key is
+    reported as `<<`.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        key: str,
+        first_line: int | None = None,
+        line: int | None = None,
+        column: int | None = None,
+        problem: str | None = None,
+    ) -> None:
+        super().__init__(message, line=line, column=column, problem=problem)
+        self.key = key
+        self.first_line = first_line
+
+
+def _restore_error(
+    cls: type[FrontmatterError],
+    args: tuple[Any, ...],
+    state: dict[str, Any],
+) -> FrontmatterError:
+    """Unpickle a FrontmatterError without going through __init__."""
+    error = cls.__new__(cls, *args)
+    error.args = args
+    error.__dict__.update(state)
+    return error
+
+
+_MERGE_TAG = "tag:yaml.org,2002:merge"
+
+
+def _spelling(node: Node, text: str) -> str:
+    """Return a key node as it is written in `text`, quotes aside."""
+    if isinstance(node, ScalarNode):
+        return str(node.value)
+    return text[node.start_mark.index : node.end_mark.index]
+
+
+def _find_duplicate(text: str, index: int) -> tuple[str, int | None] | None:
+    """Locate the key at `index` in `text`, and the earlier key it repeats.
+
+    The backend's own error names the key only inside its message, so the key
+    is recovered from the node graph instead of from the wording. Composing
+    does not check for duplicates -- construction does -- so the block that
+    just failed to load composes cleanly. Returns the key's spelling and the
+    0-based line of its first occurrence (None if that was not found), or
+    None if the key itself cannot be found.
+    """
+    yaml = YAML(typ="rt")
+    constructor = yaml.constructor
+
+    def identity(node: Node) -> object:
+        # Compare keys as the loader does, by value: `1` and `0x1` collide.
+        if node.tag == _MERGE_TAG:
+            return _MERGE_TAG
+        return constructor.construct_object(node, deep=True)
+
+    stack: list[Node] = [yaml.compose(text)]
+    seen: set[int] = set()
+    while stack:
+        node = stack.pop()
+        # Aliases make the graph a DAG; visit each node once.
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, MappingNode):
+            keys = [key for key, _ in node.value]
+            for position, key in enumerate(keys):
+                if key.start_mark.index != index:
+                    continue
+                wanted = identity(key)
+                first = next(
+                    (k for k in keys[:position] if identity(k) == wanted),
+                    None,
+                )
+                first_line = first.start_mark.line if first is not None else None
+                return _spelling(key, text), first_line
+            stack.extend(child for pair in node.value for child in pair)
+        elif isinstance(node, SequenceNode):
+            stack.extend(node.value)
+    return None
+
+
+def _describe(exc: YAMLError, text: str, start: int) -> FrontmatterError:
+    """Translate a backend error on `text`, which begins at line `start`."""
+    message = f"invalid YAML frontmatter: {exc}"
+    line = column = None
+    problem = None
+    if isinstance(exc, MarkedYAMLError) and exc.problem_mark is not None:
+        line = start + exc.problem_mark.line + 1
+        column = exc.problem_mark.column + 1
+        problem = exc.problem
+    elif isinstance(exc, ReaderError):
+        # A bad character carries an offset into the block, not a mark.
+        before = text[: exc.position]
+        line = start + before.count("\n") + 1
+        column = exc.position - (before.rfind("\n") + 1) + 1
+        problem = f"unacceptable character #x{exc.character:04x}: {exc.reason}"
+
+    if isinstance(exc, _BackendDuplicateKeyError) and exc.problem_mark is not None:
+        found = _find_duplicate(text, exc.problem_mark.index)
+        # Not found would mean the node graph disagrees with the loader. Fall
+        # back to the plain error rather than invent a key.
+        if found is not None:
+            key, first = found
+            return DuplicateKeyError(
+                message,
+                key=key,
+                first_line=None if first is None else start + first + 1,
+                line=line,
+                column=column,
+                problem=problem,
+            )
+    return FrontmatterError(message, line=line, column=column, problem=problem)
 
 
 class FrontmatterDocument:
@@ -193,6 +351,10 @@ class FrontmatterDocument:
         the library's points rather than the author's whatever the width is.
         """
         self.yaml = YAML(typ="rt")
+        # ruamel's default, set anyway: refusing duplicates is weav's contract,
+        # and the alternative -- last value wins -- converts a document with
+        # the wrong value in it rather than failing.
+        self.yaml.allow_duplicate_keys = False
         self.yaml.preserve_quotes = True
         self.yaml.width = UNLIMITED_WIDTH
         self._set_indent(DEFAULT_INDENT)
@@ -252,7 +414,7 @@ class FrontmatterDocument:
         try:
             data: Any = self.yaml.load(text)
         except YAMLError as exc:
-            raise FrontmatterError(f"invalid YAML frontmatter: {exc}") from exc
+            raise _describe(exc, text, start) from exc
 
         if data is None:
             data = CommentedMap()

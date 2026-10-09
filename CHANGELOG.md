@@ -1,5 +1,21 @@
 # Unreleased
 
+## New Features
+
+* **`FrontmatterError` says where** - it carries `line` and `column`, 1-based
+  and counted from the top of the document with the opening `---` included, so
+  they match the author's editor, and `problem`, the parser's one-line
+  description. Neither needs ruamel's message text to be parsed. `str()` is
+  unchanged.
+* **Duplicate keys are refused by contract, with `DuplicateKeyError`** - a key
+  repeated in the same mapping, at any depth, was only refused because that is
+  ruamel's default. It is now weav's documented behaviour, raised as
+  `DuplicateKeyError`, a `FrontmatterError` subclass exported from `weav`, with
+  the `key` as spelled and the `first_line` it repeats. `weav frontmatter`
+  reports both errors as `FILE:LINE:COL: ...` instead of ruamel's multi-line
+  message, which counted lines from inside the block and suggested switching
+  the check off. Closes #103.
+
 ## Bug Fixes
 
 * **`compile_template()` raises `TemplateError` for a broken template, as

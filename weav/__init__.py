@@ -36,7 +36,11 @@ if TYPE_CHECKING:
         TomlDataSource,
         YamlDataSource,
     )
-    from weav.frontmatter import FrontmatterDocument, FrontmatterError
+    from weav.frontmatter import (
+        DuplicateKeyError,
+        FrontmatterDocument,
+        FrontmatterError,
+    )
     from weav.template import (
         TemplateError,
         compile_template,
@@ -51,6 +55,7 @@ __all__ = [
     "ContextBuilder",
     "DataSource",
     "DataSourceError",
+    "DuplicateKeyError",
     "EnvDataSource",
     "ExecDataSource",
     "FrontmatterDocument",
@@ -74,6 +79,7 @@ _LAZY = {
     "ContextBuilder": "weav.datasources",
     "DataSource": "weav.datasources",
     "DataSourceError": "weav.datasources",
+    "DuplicateKeyError": "weav.frontmatter",
     "EnvDataSource": "weav.datasources",
     "ExecDataSource": "weav.datasources",
     "FrontmatterDocument": "weav.frontmatter",

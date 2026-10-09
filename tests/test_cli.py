@@ -250,6 +250,23 @@ def test_frontmatter_malformed_exits_one(doc):
     assert path.read_bytes() == raw
 
 
+def test_frontmatter_reports_a_duplicate_key_by_document_line(doc):
+    """FILE:LINE:COL as the editor counts, not ruamel's in-block numbering."""
+    path = doc(b"---\ntitle: A\nstatus: Rolling\ntitle: B\n---\n")
+    result = runner.invoke(app, ["frontmatter", str(path)])
+    assert result.exit_code == 1
+    assert f'{path}:4:1: duplicate key "title" (first defined on line 2)' in result.stderr
+    assert "suppress" not in result.stderr
+
+
+def test_frontmatter_reports_a_syntax_error_by_document_line(doc):
+    path = doc(b"---\ndocid: DYN-1\nmalformed\n---\n")
+    result = runner.invoke(app, ["frontmatter", str(path)])
+    assert result.exit_code == 1
+    assert f"{path}:4:1: invalid YAML frontmatter: could not find expected ':'" in result.stderr
+    assert "<unicode string>" not in result.stderr
+
+
 def test_bare_template_form_still_works(tmp_path):
     """The deprecated `weav TEMPLATE` form renders, warning on stderr only."""
     template = tmp_path / "test.j2"

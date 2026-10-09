@@ -254,6 +254,10 @@ The rules are strict on purpose, because a mis-split would destroy the document:
 - The block must parse as a **mapping**. A list or a scalar is body text.
 - A YAML syntax error is only fatal when the document did open with `---`.
   Otherwise weav was guessing, and guessing must not abort or destroy.
+- A key repeated in the same mapping, at any depth, is an error rather than
+  last-value-wins: `Error: FILE:LINE:COL: duplicate key "KEY" (first defined on
+  line N)`, exit 1, file untouched. Line numbers count the opening `---`, as an
+  editor does.
 
 ### What survives an edit
 
