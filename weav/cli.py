@@ -17,7 +17,7 @@ from typer.core import TyperGroup
 from weav import __version__
 from weav.agents import AgentFooterCommand, AgentFooterMixin
 from weav.datasources import DataSourceError
-from weav.frontmatter import FrontmatterDocument, FrontmatterError
+from weav.frontmatter import DuplicateKeyError, FrontmatterDocument, FrontmatterError
 from weav.template import TemplateError, compile_template
 from weav.utils import mangle_commas, mangle_keyval
 
@@ -198,6 +198,22 @@ def render(
         raise typer.Exit(1) from e
 
 
+def _frontmatter_error_message(path: Path, exc: FrontmatterError) -> str:
+    """Describe a frontmatter error as FILE:LINE:COL, the way an editor counts.
+
+    The backend's own message counts lines from inside the block, so it is one
+    short of what the author sees, names the file "<unicode string>", and for a
+    duplicate key suggests switching off a check weav gives no way to switch off.
+    """
+    if exc.line is None:
+        return f"{path}: {exc}"
+    where = f"{path}:{exc.line}:{exc.column}"
+    if isinstance(exc, DuplicateKeyError):
+        first = "" if exc.first_line is None else f" (first defined on line {exc.first_line})"
+        return f'{where}: duplicate key "{exc.key}"{first}'
+    return f"{where}: invalid YAML frontmatter: {exc.problem or 'cannot parse'}"
+
+
 def frontmatter(
     file: Annotated[
         Path,
@@ -257,7 +273,7 @@ def frontmatter(
     try:
         document = FrontmatterDocument.from_file(file)
     except FrontmatterError as exc:
-        _error(exc)
+        _error(_frontmatter_error_message(file, exc))
         raise typer.Exit(1) from exc
 
     try:
