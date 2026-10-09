@@ -176,9 +176,9 @@ class DuplicateKeyError(FrontmatterError):
     weav refuses these on purpose rather than letting the last value win: the
     document would still convert, with the wrong value in it.
 
-    `key` is the repeated key as spelled in the source -- `0x1`, not `1` -- and
-    `first_line` is the line of the key it repeats. A repeated merge key is
-    reported as `<<`.
+    `key` is the repeated key as spelled in the source, minus enclosing
+    quotes -- `0x1`, not `1`; `\\x61`, not `a` -- and `first_line` is the line
+    of the key it repeats. A repeated merge key is reported as `<<`.
     """
 
     def __init__(
@@ -209,13 +209,23 @@ def _restore_error(
 
 
 _MERGE_TAG = "tag:yaml.org,2002:merge"
+# Stands in for every merge key when keys are compared. A unique object rather
+# than the tag string, which a real string key could equal.
+_MERGE_KEY = object()
 
 
 def _spelling(node: Node, text: str) -> str:
-    """Return a key node as it is written in `text`, quotes aside."""
-    if isinstance(node, ScalarNode):
-        return str(node.value)
-    return text[node.start_mark.index : node.end_mark.index]
+    """Return a key node as it is written in `text`, enclosing quotes aside.
+
+    Sliced from the source rather than taken from the node's value, which is
+    decoded: `"\\x61"` would otherwise be reported as `a`, a spelling that is
+    nowhere in the document.
+    """
+    spelling = text[node.start_mark.index : node.end_mark.index]
+    if isinstance(node, ScalarNode) and node.style in ("'", '"'):
+        spelling = spelling[1:-1]
+    # A block scalar's range runs through its final line break.
+    return spelling.rstrip("\n")
 
 
 def _find_duplicate(text: str, index: int) -> tuple[str, int | None] | None:
@@ -234,7 +244,7 @@ def _find_duplicate(text: str, index: int) -> tuple[str, int | None] | None:
     def identity(node: Node) -> object:
         # Compare keys as the loader does, by value: `1` and `0x1` collide.
         if node.tag == _MERGE_TAG:
-            return _MERGE_TAG
+            return _MERGE_KEY
         return constructor.construct_object(node, deep=True)
 
     stack: list[Node] = [yaml.compose(text)]

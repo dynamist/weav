@@ -259,6 +259,15 @@ def test_frontmatter_reports_a_duplicate_key_by_document_line(doc):
     assert "suppress" not in result.stderr
 
 
+def test_frontmatter_keeps_an_awkward_key_on_one_line(doc):
+    """A key with a quote or a line break is escaped rather than printed raw."""
+    path = doc(b'---\n? |\n  a"b\n: 1\n? |\n  a"b\n: 2\n---\n')
+    result = runner.invoke(app, ["frontmatter", str(path)])
+    assert result.exit_code == 1
+    assert f'{path}:5:3: duplicate key "|\\n  a\\"b" (first defined on line 2)' in result.stderr
+    assert result.stderr.count("\n") == 1
+
+
 def test_frontmatter_reports_a_syntax_error_by_document_line(doc):
     path = doc(b"---\ndocid: DYN-1\nmalformed\n---\n")
     result = runner.invoke(app, ["frontmatter", str(path)])
