@@ -271,6 +271,18 @@ DUPLICATES = {
     "merge key": ("---\nb: &b {x: 1}\nm:\n  <<: *b\n  <<: *b\n---\n", "<<", 5, 3, 4),
     # Keys collide by value; the reported key is the second spelling.
     "same int": ("---\n1: x\n0x1: y\n---\n", "0x1", 3, 1, 2),
+    # The spelling is the source text: escapes kept, enclosing quotes dropped.
+    "escaped key": ('---\na: 1\n"\\x61": 2\n---\n', "\\x61", 3, 1, 2),
+    "single quoted": ("---\nit's: 1\n'it''s': 2\n---\n", "it''s", 3, 1, 2),
+    "block scalar key": ("---\n? |\n  k\n: 1\n? |\n  k\n: 2\n---\n", "|\n  k", 5, 3, 2),
+    # A string key equal to the merge tag is not a merge key.
+    "merge after tag string": (
+        "---\nb: &b {x: 1}\nm:\n  tag:yaml.org,2002:merge: 0\n  <<: *b\n  <<: *b\n---\n",
+        "<<",
+        6,
+        3,
+        5,
+    ),
     "sequence key": ("---\n[a, b]: 1\n[a, b]: 2\n---\n", "[a, b]", 3, 1, 2),
     "same null": ("---\nnull: x\n~: y\n---\n", "~", 3, 1, 2),
     # The BOM and CRLF are stripped before parsing and must not shift a line.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from importlib import resources
@@ -210,7 +211,10 @@ def _frontmatter_error_message(path: Path, exc: FrontmatterError) -> str:
     where = f"{path}:{exc.line}:{exc.column}"
     if isinstance(exc, DuplicateKeyError):
         first = "" if exc.first_line is None else f" (first defined on line {exc.first_line})"
-        return f'{where}: duplicate key "{exc.key}"{first}'
+        # JSON-quoted so a key holding a quote or a line break cannot split or
+        # blur the one-line message. A plain key reads exactly as "title".
+        key = json.dumps(exc.key, ensure_ascii=False)
+        return f"{where}: duplicate key {key}{first}"
     return f"{where}: invalid YAML frontmatter: {exc.problem or 'cannot parse'}"
 
 
